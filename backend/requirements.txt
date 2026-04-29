@@ -1,0 +1,10 @@
+﻿fastapi[standard]
+uvicorn
+python-multipart
+pypdf
+python-docx
+python-dotenv
+openai
+pandas
+openpyxl
+matplotlib

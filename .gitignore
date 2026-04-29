@@ -1,0 +1,31 @@
+﻿# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+backend/.env
+
+# Backend generated files
+backend/storage/uploads/
+backend/storage/index/
+backend/storage/outputs/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+
+# VS Code
+.vscode/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Local runtime data
+backend/storage/
+backend/*.xlsx
+backend/test_*.txt
