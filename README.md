@@ -1,66 +1,92 @@
-﻿# DocFlow-Agent
+﻿# DocFlow Agent
 
-DocFlow-Agent 是一个面向学习、实验报告、课程文档和项目资料整理场景的 AI 文档处理 Agent 原型项目。
+DocFlow Agent 是一个基于 **FastAPI + Vue 3 + 大模型 API** 构建的 AI 文档处理智能体项目。项目面向学习资料、课程论文、实验报告和项目文档等场景，支持用户上传 TXT / PDF 文档，系统自动解析文档内容，并调用大模型生成结构化摘要。
 
-项目目标是构建一个可以处理真实文档的智能体系统，使用户能够上传文档，并完成文档解析、文本切分、相关片段检索、文档问答和 Markdown 报告生成等任务。
+当前版本已经完成从“聊天智能体”到“文档智能体”的第一阶段升级：支持真实大模型 API 调用、文档上传、文本解析、结构化摘要生成，以及 Token 使用情况展示。
 
-当前项目处于 `v0.1 prototype` 开发阶段，重点是先完成一个最小可运行链路。
+---
+
+## 项目亮点
+
+- 支持 TXT / PDF 文档上传
+- 后端自动解析文档文本内容
+- 支持可提取文字层的 PDF 文件
+- 调用阿里云百炼 OpenAI-compatible API
+- 使用 qwen3.6-flash 模型生成结构化摘要
+- 前端展示文件名、文件类型、字符数和摘要内容
+- 前端展示输入 Token、输出 Token 和总 Token
+- 支持 Markdown 格式渲染模型输出
+- 前后端分离架构，便于后续扩展 RAG、文档问答和报告生成能力
+
+---
+
+## 当前已实现功能
+
+### 1. 大模型聊天接口
+
+项目已经接入真实大模型 API，后端通过统一的 `LLMService` 封装模型调用逻辑。
+
+用户可以在前端输入问题，后端调用大模型接口并返回回答内容和 Token 使用情况。
+
+已实现链路：
 
 ```text
-文档上传
+Vue 前端
 ↓
-文档解析
+FastAPI 后端 /api/chat
 ↓
-文本切分
+LLMService
 ↓
-相关片段检索
+阿里云百炼 qwen3.6-flash
 ↓
-LLM / Mock 模式回答
-↓
-Markdown 报告生成
+返回模型回复与 Token 使用情况
 ```
 
 ---
 
-## 1. 项目背景
+### 2. 文档上传与摘要生成
 
-在学习、课程实验、简历准备和日常办公中，经常需要处理大量非结构化文档，例如实验报告、课程资料、项目 README、论文笔记、学习资料和表格数据等。
+用户可以上传 TXT 或 PDF 文件，后端自动识别文件类型并提取文本内容，然后构造文档摘要 Prompt，调用大模型生成结构化摘要。
 
-传统方式需要人工阅读、提取重点、整理格式和生成报告，效率较低。DocFlow-Agent 希望通过大模型与工具模块结合，实现一个轻量级的文档处理智能体，帮助用户完成文档内容解析、重点信息提取、文档问答和报告生成。
+已实现链路：
 
----
+```text
+上传 TXT / PDF 文档
+↓
+后端解析文档文本
+↓
+构造结构化摘要 Prompt
+↓
+调用大模型生成摘要
+↓
+前端展示摘要结果和 Token 消耗
+```
 
-## 2. 当前项目状态
+当前摘要结果包含：
 
-当前版本是原型阶段，已经完成基础项目结构和后端核心模块设计。
-
-已完成内容：
-
-- FastAPI 后端基础接口
-- Vue 前端项目骨架
-- PDF / Word / TXT / Markdown 文档解析模块
-- 文本切分模块
-- 简易关键词检索模块
-- LLM 调用模块
-- Mock 模式测试流程
-- Markdown 报告生成模块
-- 表格分析模块雏形
-- 图表生成模块雏形
-- 多文档处理模块雏形
-- 简单记忆模块雏形
-
-后续将继续完善：
-
-- 接入真实大模型 API
-- 完成前端上传和问答交互页面
-- 增加 RAG 向量检索
-- 增加 Agent 工具调用日志
-- 增加更完整的报告导出能力
-- 增加项目截图、演示视频和部署说明
+- 文档主要内容
+- 关键信息提取
+- 结构化要点
+- 可能的后续问题
+- 模型名称
+- 输入 Token、输出 Token、总 Token
 
 ---
 
-## 3. 技术栈
+### 3. 前端结果展示
+
+前端基于 Vue 3 实现，支持：
+
+- 文档上传
+- 文件信息展示
+- 结构化摘要展示
+- Markdown 渲染
+- Token 使用情况展示
+- 错误提示展示
+
+---
+
+## 技术栈
 
 ### 后端
 
@@ -68,331 +94,128 @@ Markdown 报告生成
 - FastAPI
 - Uvicorn
 - pypdf
-- python-docx
-- pandas
-- openpyxl
-- matplotlib
+- python-multipart
 - python-dotenv
-- OpenAI-compatible API
+- OpenAI Python SDK
+- 阿里云百炼 OpenAI-compatible API
 
 ### 前端
 
 - Vue 3
 - Vite
 - JavaScript
-- CSS
+- markdown-it
+- Fetch API
 
-### 后续计划使用
+### 模型服务
 
-- FAISS / Chroma
-- Embedding 模型
-- RAG 检索增强生成
-- Agent Tool Calling
-- SQLite 本地数据存储
+- 阿里云百炼
+- qwen3.6-flash
+- OpenAI-compatible API 调用方式
 
 ---
 
-## 4. 项目结构
+## 项目目录结构
 
 ```text
 docflow-agent/
-├─ backend/
-│  ├─ main.py                 # FastAPI 后端入口
-│  ├─ document_parser.py      # 文档解析模块
-│  ├─ chunker.py              # 文本切分模块
-│  ├─ retriever.py            # 简易检索模块
-│  ├─ llm_client.py           # LLM / Mock 调用模块
-│  ├─ report.py               # Markdown 报告生成模块
-│  ├─ table_analyzer.py       # 表格分析模块
-│  ├─ chart_generator.py      # 图表生成模块
-│  ├─ multi_doc.py            # 多文档处理模块
-│  ├─ memory.py               # 简单记忆模块
-│  ├─ requirements.txt        # 后端依赖
-│  └─ storage/                # 本地运行数据目录，不上传 GitHub
-│     ├─ uploads/             # 上传文件目录
-│     ├─ index/               # 文档索引目录
-│     └─ outputs/             # 报告输出目录
+├── backend/
+│   ├── main.py
+│   ├── routers/
+│   │   ├── chat.py
+│   │   └── document.py
+│   └── services/
+│       ├── llm_service.py
+│       └── document_service.py
 │
-├─ frontend/
-│  ├─ src/
-│  │  ├─ App.vue              # 前端主页面
-│  │  └─ main.js              # 前端入口
-│  ├─ package.json
-│  └─ vite.config.js
+├── frontend/
+│   ├── src/
+│   │   ├── api/
+│   │   │   ├── chat.js
+│   │   │   └── document.js
+│   │   ├── components/
+│   │   │   ├── ChatPanel.vue
+│   │   │   └── DocumentPanel.vue
+│   │   └── App.vue
+│   ├── package.json
+│   └── vite.config.js
 │
-├─ .gitignore
-└─ README.md
+├── README.md
+└── .gitignore
 ```
 
 ---
 
-## 5. 核心功能
+## 后端启动方式
 
-### 5.1 文档解析
-
-项目支持将不同格式的文档解析为纯文本，方便后续进行切分、检索和问答。
-
-当前支持格式：
-
-- `.pdf`
-- `.docx`
-- `.txt`
-- `.md`
-
-后续计划支持：
-
-- `.xlsx`
-- `.csv`
-- `.pptx`
-
----
-
-### 5.2 文本切分
-
-长文档通常无法直接全部传入大模型，因此系统会先将文档切分成多个文本片段。
-
-切分后的文本片段可以用于：
-
-- 文档检索
-- RAG 问答
-- 上下文构造
-- 摘要生成
-- 报告生成
-
----
-
-### 5.3 简易检索
-
-当前版本使用关键词重合度进行基础检索。
-
-基础流程如下：
-
-```text
-用户问题
-↓
-问题分词
-↓
-文档片段分词
-↓
-计算关键词重合度
-↓
-返回相关片段
-```
-
-该模块是 RAG 的原型版本。后续会升级为基于 Embedding 的向量检索。
-
----
-
-### 5.4 LLM / Mock 模式
-
-项目当前支持 Mock 模式，方便在没有真实 API Key 的情况下测试完整流程。
-
-Mock 模式可以验证：
-
-- 文档上传是否成功
-- 文档解析是否成功
-- 文本切分是否成功
-- 检索是否返回相关片段
-- 报告是否能够生成
-
-后续可以通过 `.env` 文件切换到真实大模型 API。
-
----
-
-### 5.5 Markdown 报告生成
-
-系统可以将用户问题、模型回答和相关结果保存为 Markdown 报告，便于后续整理为学习笔记、实验报告或项目文档。
-
-默认输出目录：
-
-```text
-backend/storage/outputs/
-```
-
----
-
-### 5.6 表格分析模块
-
-项目中预留了表格分析模块，用于后续支持 Excel 数据分析场景。
-
-计划能力包括：
-
-- 读取 Excel 表格
-- 统计行列信息
-- 生成基础数据摘要
-- 分析数值字段
-- 根据表格内容生成分析报告
-
----
-
-### 5.7 图表生成模块
-
-项目中预留了图表生成模块，用于后续支持数据可视化。
-
-计划能力包括：
-
-- 根据表格数据生成柱状图
-- 根据表格数据生成折线图
-- 保存图表图片
-- 将图表结果用于报告生成
-
----
-
-### 5.8 多文档处理模块
-
-项目中预留了多文档处理模块，用于后续实现多个文档之间的联合分析。
-
-计划能力包括：
-
-- 多文档上传
-- 多文档内容合并
-- 多文档对比
-- 多文档问答
-- 多文档总结报告生成
-
----
-
-### 5.9 简单记忆模块
-
-项目中包含简单记忆模块，用于保存用户偏好、任务记录或项目状态。
-
-后续计划用于支持：
-
-- 用户长期学习目标
-- 当前处理项目
-- 常用输出格式
-- 历史问答记录
-- 个性化 Agent 行为
-
----
-
-## 6. 快速开始
-
-### 6.1 克隆项目
-
-```bash
-git clone https://github.com/w1016445161-netizen/docflow-agent.git
-cd docflow-agent
-```
-
----
-
-## 7. 后端运行方式
-
-### 7.1 创建虚拟环境
-
-在项目根目录执行：
-
-```bash
-python -m venv .venv
-```
-
-Windows PowerShell 激活虚拟环境：
+进入项目根目录：
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
+cd D:\projects\docflow_agent
 ```
 
-如果遇到 PowerShell 执行策略限制，可以使用：
+创建并激活虚拟环境后，安装依赖：
 
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-.\.venv\Scripts\Activate.ps1
+pip install fastapi uvicorn openai python-dotenv python-multipart pypdf
 ```
 
----
-
-### 7.2 安装后端依赖
-
-进入后端目录：
-
-```bash
-cd backend
-```
-
-安装依赖：
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-### 7.3 配置环境变量
-
-在 `backend` 目录下创建 `.env` 文件。
-
-示例：
+在项目根目录创建 `.env` 文件：
 
 ```env
-LLM_MODE=mock
-
-OPENAI_API_KEY=your_api_key_here
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
+LLM_PROVIDER=aliyun
+DASHSCOPE_API_KEY=你的阿里云百炼API_KEY
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+LLM_MODEL=qwen3.6-flash
 ```
 
-当前默认推荐使用：
+启动后端：
 
-```env
-LLM_MODE=mock
+```powershell
+python -m uvicorn backend.main:app --reload
 ```
 
-这样即使没有真实 API Key，也可以先测试项目流程。
-
-当需要接入真实大模型 API 时，可以改为：
-
-```env
-LLM_MODE=openai
-```
-
-注意：
-
-```text
-.env 文件不要上传到 GitHub。
-```
-
----
-
-### 7.4 启动后端服务
-
-在 `backend` 目录下执行：
-
-```bash
-uvicorn main:app --reload
-```
-
-启动成功后访问：
+后端接口文档地址：
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-FastAPI 会自动生成接口调试页面。
+健康检查接口：
+
+```text
+http://127.0.0.1:8000/api/health
+```
 
 ---
 
-## 8. 前端运行方式
+## 前端启动方式
 
 进入前端目录：
 
-```bash
-cd frontend
+```powershell
+cd D:\projects\docflow_agent\frontend
 ```
 
 安装依赖：
 
-```bash
+```powershell
 npm install
+```
+
+创建前端环境变量文件 `.env.development`：
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 启动前端：
 
-```bash
+```powershell
 npm run dev
 ```
 
-默认访问地址：
+前端访问地址：
 
 ```text
 http://localhost:5173
@@ -400,309 +223,181 @@ http://localhost:5173
 
 ---
 
-## 9. API 接口说明
+## API 接口说明
 
-后端启动后可以通过以下地址查看接口文档：
-
-```text
-http://127.0.0.1:8000/docs
-```
-
----
-
-### 9.1 健康检查
-
-```http
-GET /health
-```
-
-用于检查后端服务是否正常运行。
-
-示例返回：
-
-```json
-{
-  "status": "ok",
-  "message": "DocFlow-Agent backend is running."
-}
-```
-
----
-
-### 9.2 上传文档
-
-```http
-POST /upload
-```
-
-功能：
-
-上传文档并解析内容，系统会生成对应的 `doc_id`。
-
-当前支持格式：
+### 1. 聊天接口
 
 ```text
-.pdf
-.docx
-.txt
-.md
-```
-
-示例返回：
-
-```json
-{
-  "message": "文档上传并解析成功",
-  "doc_id": "example-doc-id",
-  "filename": "example.pdf",
-  "total_chars": 12000,
-  "total_chunks": 16
-}
-```
-
----
-
-### 9.3 文档问答
-
-```http
-POST /ask
+POST /api/chat
 ```
 
 请求示例：
 
 ```json
 {
-  "doc_id": "example-doc-id",
-  "question": "这份文档主要讲了什么？"
+  "message": "请用三句话介绍这个文档智能体项目。"
 }
 ```
 
-示例返回：
+返回示例：
 
 ```json
 {
-  "doc_id": "example-doc-id",
+  "model": "qwen3.6-flash",
+  "content": "模型回复内容",
+  "usage": {
+    "prompt_tokens": 41,
+    "completion_tokens": 90,
+    "total_tokens": 131
+  }
+}
+```
+
+---
+
+### 2. 文档摘要接口
+
+```text
+POST /api/documents/summarize
+```
+
+请求类型：
+
+```text
+multipart/form-data
+```
+
+参数：
+
+```text
+file: 上传的 TXT 或 PDF 文件
+```
+
+返回示例：
+
+```json
+{
   "filename": "example.pdf",
-  "question": "这份文档主要讲了什么？",
-  "answer": "这里是系统生成的回答",
-  "related_chunks": [],
-  "report_path": "storage/outputs/example-doc-id_report.md"
+  "file_type": "pdf",
+  "char_count": 6763,
+  "is_truncated": false,
+  "preview": "提取出的前 500 字文本",
+  "summary": "结构化摘要内容",
+  "model": "qwen3.6-flash",
+  "usage": {
+    "prompt_tokens": 4672,
+    "completion_tokens": 1017,
+    "total_tokens": 5689
+  }
 }
 ```
 
 ---
 
-### 9.4 查询文档信息
+## 当前版本限制
 
-```http
-GET /documents/{doc_id}
-```
+当前版本支持：
 
-功能：
+- TXT 文档
+- 可提取文字层的 PDF 文档
 
-根据 `doc_id` 查询文档基础信息。
+暂不支持：
 
----
+- 扫描版 PDF
+- 图片型 PDF
+- 手写文档
+- 多文件批量处理
+- 长文档向量检索问答
 
-## 10. 使用流程示例
-
-### 第一步：启动后端
-
-```bash
-cd backend
-uvicorn main:app --reload
-```
-
----
-
-### 第二步：打开接口页面
+如果上传扫描版 PDF，系统可能提示：
 
 ```text
-http://127.0.0.1:8000/docs
+没有从文档中提取到有效文本。如果是扫描版 PDF，需要后续接入 OCR。
+```
+
+后续可以接入 PaddleOCR、Tesseract 或云 OCR 服务，扩展扫描版 PDF 识别能力。
+
+---
+
+## 后续计划
+
+### v0.3 文档问答能力
+
+- 上传文档后保存文档文本
+- 用户基于当前文档继续提问
+- 后端基于文档内容生成回答
+- 实现“上传文档 + 连续问答”的基础 Agent 体验
+
+### v0.4 RAG 检索增强
+
+- 文档切分
+- 向量化存储
+- 相似片段检索
+- 基于检索结果回答问题
+- 支持长文档问答
+
+### v0.5 报告生成
+
+- 根据文档内容生成 Markdown 报告
+- 支持摘要、问答记录和结构化结论导出
+- 支持实验报告、课程笔记和项目说明文档生成
+
+### v0.6 部署与演示
+
+- 支持局域网访问
+- 支持云服务器部署
+- 增加项目演示截图
+- 完善在线访问说明
+
+---
+
+## 安全说明
+
+项目中的 API Key 只应保存在后端 `.env` 文件中，不应写入前端代码，也不应提交到 GitHub。
+
+`.gitignore` 中应包含：
+
+```gitignore
+.env
+.env.*
+frontend/.env.development
 ```
 
 ---
 
-### 第三步：上传文档
+## 项目状态
 
-在 `/upload` 接口上传 PDF、Word、TXT 或 Markdown 文件。
-
-上传成功后复制返回的 `doc_id`。
-
----
-
-### 第四步：向文档提问
-
-在 `/ask` 接口中输入：
-
-```json
-{
-  "doc_id": "你的 doc_id",
-  "question": "这份文档的主要内容是什么？"
-}
-```
-
----
-
-### 第五步：查看报告
-
-系统会在下面目录生成 Markdown 报告：
+当前版本：
 
 ```text
-backend/storage/outputs/
+DocFlow Agent v0.2
 ```
 
----
-
-## 11. 当前版本说明
-
-当前版本主要用于验证 DocFlow-Agent 的基础工程链路，重点不是实现复杂 Agent，而是先跑通一个真实可扩展的文档处理流程。
-
-当前能力：
+已完成：
 
 ```text
-文档上传
-文档解析
-文本切分
-基础检索
-Mock 模式回答
-Markdown 报告生成
-前端项目骨架
+真实大模型 API 接入
+TXT / PDF 文档上传
+文档文本解析
+结构化摘要生成
+Token 使用情况展示
+Markdown 渲染
 ```
 
-当前限制：
+下一阶段目标：
 
 ```text
-暂未完成正式前端交互页面
-暂未接入稳定的真实大模型 API
-暂未实现向量数据库检索
-暂未实现完整多轮 Agent 工作流
-暂未实现用户登录和权限管理
+基于已上传文档的智能问答
 ```
 
 ---
 
-## 12. Roadmap
+## 项目适用场景
 
-### v0.1 Prototype
-
-- [x] 创建项目基础结构
-- [x] 搭建 FastAPI 后端
-- [x] 创建 Vue 前端项目
-- [x] 实现文档解析模块
-- [x] 实现文本切分模块
-- [x] 实现简易检索模块
-- [x] 实现 Mock 模式 LLM 调用
-- [x] 实现 Markdown 报告生成
-
----
-
-### v0.2 Basic Agent
-
-- [ ] 接入真实大模型 API
-- [ ] 完成前端文件上传页面
-- [ ] 完成前端文档问答页面
-- [ ] 展示相关文档片段
-- [ ] 支持报告下载
-- [ ] 增加错误提示和加载状态
-
----
-
-### v0.3 RAG Version
-
-- [ ] 接入 Embedding 模型
-- [ ] 使用 FAISS 或 Chroma 实现向量检索
-- [ ] 优化长文档问答效果
-- [ ] 增加回答引用来源
-- [ ] 降低大模型幻觉
-
----
-
-### v0.4 Tool-Calling Agent
-
-- [ ] 增加工具调用流程
-- [ ] 支持表格分析工具
-- [ ] 支持图表生成工具
-- [ ] 支持报告生成工具
-- [ ] 增加 Agent 执行日志
-
----
-
-### v0.5 Project Demo
-
-- [ ] 增加项目截图
-- [ ] 增加演示视频
-- [ ] 完善部署文档
-- [ ] 完善简历项目描述
-- [ ] 整理项目复盘文档
-
----
-
-## 13. 适用场景
-
-DocFlow-Agent 适合以下场景：
-
-- 学生整理课程资料
-- 自动生成实验报告初稿
-- 阅读论文或学习笔记
-- 分析项目 README
-- 整理简历项目材料
-- 对上传文档进行问答
-- 对表格数据进行基础分析
-- 生成 Markdown 总结报告
-
----
-
-## 14. 项目亮点
-
-相比普通聊天机器人，本项目更关注真实任务处理流程。
-
-主要特点：
-
-- 支持真实文档输入
-- 支持文档解析和切分
-- 支持基于文档片段的问答
-- 支持 Markdown 报告文件生成
-- 后端模块化设计，便于后续扩展
-- 前后端分离结构
-- 预留 RAG、工具调用、多文档和记忆模块
-
----
-
-## 15. 后续优化方向
-
-后续将从以下方向继续完善：
-
-1. 前端交互优化  
-   完成文件上传、问答输入、回答展示、报告下载等页面。
-
-2. RAG 检索升级  
-   使用 Embedding 和向量数据库替代当前的关键词检索。
-
-3. 工具调用增强  
-   将文档解析、表格分析、图表生成、报告生成封装为 Agent 工具。
-
-4. 多文档问答  
-   支持多个文档之间的联合检索和综合回答。
-
-5. 结果可解释性  
-   回答时展示引用片段，说明答案来源。
-
-6. 项目工程化  
-   增加日志、异常处理、配置管理、测试用例和部署文档。
-
----
-
-## 16. 开发者
-
-Author: `w1016445161-netizen`
-
-GitHub: https://github.com/w1016445161-netizen
-
----
-
-## 17. License
-
-This project is currently for learning and prototype development.
-
-A formal open-source license may be added in future versions.
+- 课程论文摘要
+- 实验报告整理
+- 学习笔记总结
+- PDF 资料快速理解
+- 项目文档问答
+- 简历项目展示
+- AI Agent 学习实践
