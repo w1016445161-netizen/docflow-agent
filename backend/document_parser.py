@@ -3,9 +3,19 @@ from pathlib import Path
 
 from pypdf import PdfReader
 from docx import Document
+from dotenv import load_dotenv
 
-from backend.table_analyzer import analyze_excel, excel_analysis_to_text
 from backend.ocr_parser import ocr_pdf
+from backend.table_analyzer import analyze_excel, excel_analysis_to_text
+
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT_DIR / ".env")
+
+
+def _get_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name, str(default)).lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 def parse_txt(file_path: str) -> str:
@@ -13,63 +23,32 @@ def parse_txt(file_path: str) -> str:
     return path.read_text(encoding="utf-8-sig", errors="ignore")
 
 
-def parse_pdf_text_only(file_path: str) -> str:
-    """
-    只使用 pypdf 提取 PDF 文本。
-    适合数字文本型 PDF。
-    """
-    reader = PdfReader(file_path)
-    pages_text = []
-
-    for page_index, page in enumerate(reader.pages, start=1):
-        text = page.extract_text() or ""
-        pages_text.append(f"\n[第 {page_index} 页]\n{text}")
-
-    return "\n".join(pages_text).strip()
-
-
 def parse_pdf(file_path: str) -> str:
-    """
-    PDF 解析逻辑：
-    1. 先尝试普通文本提取
-    2. 如果提取结果太少，判断为扫描型 PDF
-    3. 自动启用 OCR
-    """
-    normal_text = parse_pdf_text_only(file_path)
-
-    ocr_enabled = os.getenv("OCR_ENABLED", "false").lower() == "true"
-    min_text_length = int(os.getenv("OCR_MIN_TEXT_LENGTH", "80"))
-
-    if len(normal_text.strip()) >= min_text_length:
-        return normal_text
-
-    if not ocr_enabled:
-        return (
-            normal_text
-            + "\n\n[提示] 该 PDF 可能是扫描型 PDF，普通文本提取结果较少。"
-            + "请在 .env 中设置 OCR_ENABLED=true 后启用 OCR。"
-        )
+    texts = []
 
     try:
-        ocr_text = ocr_pdf(file_path)
+        reader = PdfReader(file_path)
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            if page_text.strip():
+                texts.append(page_text.strip())
+    except Exception:
+        texts = []
 
-        if not ocr_text.strip():
-            return (
-                normal_text
-                + "\n\n[提示] 已尝试 OCR，但未识别到有效文本。"
-            )
+    text = "\n\n".join(texts).strip()
 
-        return (
-            "[系统提示] 普通 PDF 文本提取结果较少，已自动启用 OCR 识别。\n\n"
-            + ocr_text
-        )
+    min_text_length = int(os.getenv("OCR_MIN_TEXT_LENGTH", "80"))
 
-    except Exception as e:
-        return (
-            normal_text
-            + "\n\n[错误] OCR 识别失败："
-            + str(e)
-        )
+    if len(text) >= min_text_length:
+        return text
+
+    if _get_bool("OCR_ENABLED", False):
+        return ocr_pdf(file_path)
+
+    if text:
+        return text
+
+    raise ValueError("没有从 PDF 中提取到有效文本。如果这是扫描型 PDF，请启用 OCR。")
 
 
 def parse_docx(file_path: str) -> str:

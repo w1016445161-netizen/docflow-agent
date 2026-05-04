@@ -6,7 +6,8 @@ import pytesseract
 from PIL import Image
 from dotenv import load_dotenv
 
-load_dotenv()
+ROOT_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT_DIR / ".env")
 
 
 def setup_tesseract():
