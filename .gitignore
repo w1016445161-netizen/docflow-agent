@@ -2,6 +2,8 @@
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
 # Environment variables
 .env
@@ -11,14 +13,24 @@ frontend/.env.development
 !.env.example
 !frontend/.env.example
 
+# Claude Code local data
+.claude/
+
+# Runtime / generated data
+.runtime/
+storage/
+backend/storage/
+backend/storage/uploads/
+backend/storage/index/
+backend/storage/outputs/
+
 # Temporary test scripts
 test_llm.py
 test_llm_service.py
 
-# Backend generated files
-backend/storage/uploads/
-backend/storage/index/
-backend/storage/outputs/
+# Backend local test files
+backend/*.xlsx
+backend/test_*.txt
 
 # Node / frontend
 node_modules/
@@ -32,8 +44,3 @@ frontend/dist/
 # System files
 .DS_Store
 Thumbs.db
-
-# Local runtime data
-backend/storage/
-backend/*.xlsx
-backend/test_*.txt
