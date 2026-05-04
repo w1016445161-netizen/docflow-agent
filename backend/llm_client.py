@@ -18,15 +18,11 @@ def _get_client_and_model():
 
     base_url = os.getenv("LLM_BASE_URL", "").strip()
     if not base_url:
-        raise ValueError(
-            "缺少 LLM_BASE_URL，请在项目根目录 .env 中设置 LLM_BASE_URL"
-        )
+        raise ValueError("缺少 LLM_BASE_URL，请在项目根目录 .env 中设置 LLM_BASE_URL")
 
     model = os.getenv("LLM_MODEL", "").strip()
     if not model:
-        raise ValueError(
-            "缺少 LLM_MODEL，请在项目根目录 .env 中设置 LLM_MODEL"
-        )
+        raise ValueError("缺少 LLM_MODEL，请在项目根目录 .env 中设置 LLM_MODEL")
 
     api_key = ""
     if provider == "aliyun":
@@ -43,10 +39,7 @@ def _get_client_and_model():
 
 def build_prompt(question: str, contexts: list[dict]) -> str:
     context_text = "\n\n".join(
-        [
-            f"[片段 {item['chunk_id']}]\n{item['text']}"
-            for item in contexts
-        ]
+        [f"[片段 {item['chunk_id']}]\n{item['text']}" for item in contexts]
     )
 
     prompt = f"""
@@ -78,14 +71,11 @@ def ask_llm(question: str, contexts: list[dict]) -> str:
         messages=[
             {
                 "role": "system",
-                "content": "你是一个严谨的文档问答助手，只能基于用户提供的文档内容回答。"
+                "content": "你是一个严谨的文档问答助手，只能基于用户提供的文档内容回答。",
             },
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "user", "content": prompt},
         ],
-        temperature=0.2
+        temperature=0.2,
     )
 
     return response.choices[0].message.content
@@ -124,15 +114,12 @@ def summarize_text(filename: str, text: str, max_tokens: int = 800) -> str:
         messages=[
             {
                 "role": "system",
-                "content": "你是一个严谨的文档摘要助手。严格基于文档内容生成摘要，不添加文档中不存在的信息。"
+                "content": "你是一个严谨的文档摘要助手。严格基于文档内容生成摘要，不添加文档中不存在的信息。",
             },
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "user", "content": prompt},
         ],
         temperature=0.3,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
     )
 
     return response.choices[0].message.content
@@ -171,16 +158,13 @@ def summarize_text_stream(filename: str, text: str, max_tokens: int = 800):
         messages=[
             {
                 "role": "system",
-                "content": "你是一个严谨的文档摘要助手。严格基于文档内容生成摘要，不添加文档中不存在的信息。"
+                "content": "你是一个严谨的文档摘要助手。严格基于文档内容生成摘要，不添加文档中不存在的信息。",
             },
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "user", "content": prompt},
         ],
         temperature=0.3,
         max_tokens=max_tokens,
-        stream=True
+        stream=True,
     )
 
     for chunk in response:

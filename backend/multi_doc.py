@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-
 INDEX_DIR = Path("storage/index")
 
 
@@ -14,7 +13,9 @@ def load_doc_index(doc_id: str) -> dict:
     return json.loads(index_path.read_text(encoding="utf-8"))
 
 
-def build_multi_doc_context(doc_ids: list[str], max_chunks_per_doc: int = 3) -> list[dict]:
+def build_multi_doc_context(
+    doc_ids: list[str], max_chunks_per_doc: int = 3
+) -> list[dict]:
     """
     从多个文档中抽取前几个片段，构造对比上下文。
     """
@@ -27,12 +28,14 @@ def build_multi_doc_context(doc_ids: list[str], max_chunks_per_doc: int = 3) -> 
         chunks = index_data["chunks"][:max_chunks_per_doc]
 
         for chunk in chunks:
-            contexts.append({
-                "doc_id": doc_id,
-                "filename": filename,
-                "chunk_id": chunk["chunk_id"],
-                "text": f"【文档：{filename}】\n{chunk['text']}"
-            })
+            contexts.append(
+                {
+                    "doc_id": doc_id,
+                    "filename": filename,
+                    "chunk_id": chunk["chunk_id"],
+                    "text": f"【文档：{filename}】\n{chunk['text']}",
+                }
+            )
 
     return contexts
 
@@ -46,11 +49,13 @@ def list_documents() -> list[dict]:
     for index_path in INDEX_DIR.glob("*.json"):
         data = json.loads(index_path.read_text(encoding="utf-8"))
 
-        documents.append({
-            "doc_id": data["doc_id"],
-            "filename": data["filename"],
-            "total_chars": data["total_chars"],
-            "total_chunks": data["total_chunks"]
-        })
+        documents.append(
+            {
+                "doc_id": data["doc_id"],
+                "filename": data["filename"],
+                "total_chars": data["total_chars"],
+                "total_chunks": data["total_chunks"],
+            }
+        )
 
     return documents

@@ -46,7 +46,7 @@ def summarize_dataframe(df: pd.DataFrame, sheet_name: str) -> dict:
         "text_columns": text_columns,
         "missing_values": missing_values,
         "numeric_summary": numeric_summary,
-        "preview": preview
+        "preview": preview,
     }
 
 
@@ -56,11 +56,7 @@ def analyze_excel(file_path: str) -> dict:
     """
     sheets = load_excel(file_path)
 
-    result = {
-        "file_path": file_path,
-        "sheet_count": len(sheets),
-        "sheets": []
-    }
+    result = {"file_path": file_path, "sheet_count": len(sheets), "sheets": []}
 
     for sheet_name, df in sheets.items():
         summary = summarize_dataframe(df, sheet_name)

@@ -21,7 +21,6 @@ from backend.memory import load_memory, update_memory, add_history, memory_to_te
 from backend.multi_doc import list_documents, build_multi_doc_context
 from backend.ocr_parser import check_ocr_available
 
-
 app = FastAPI(
     title="DocFlow-Agent API",
     description="文档智能体后端服务",
@@ -75,25 +74,17 @@ class CompareRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {
-        "message": "DocFlow-Agent backend is running."
-    }
+    return {"message": "DocFlow-Agent backend is running."}
 
 
 @app.get("/health")
 def health_check():
-    return {
-        "status": "ok",
-        "message": "DocFlow-Agent backend is running."
-    }
+    return {"status": "ok", "message": "DocFlow-Agent backend is running."}
 
 
 @app.get("/api/health")
 def api_health_check():
-    return {
-        "status": "ok",
-        "message": "DocFlow-Agent backend is running."
-    }
+    return {"status": "ok", "message": "DocFlow-Agent backend is running."}
 
 
 @app.get("/ocr/status")
@@ -102,15 +93,14 @@ def ocr_status():
 
 
 @app.post("/api/documents/summarize")
-async def summarize_document(file: UploadFile = File(...), summary_mode: str = Form("fast")):
+async def summarize_document(
+    file: UploadFile = File(...), summary_mode: str = Form("fast")
+):
     original_filename = file.filename or "unknown"
     suffix = Path(original_filename).suffix.lower()
 
     if suffix not in [".txt", ".pdf"]:
-        raise HTTPException(
-            status_code=400,
-            detail="暂时只支持 .txt 和 .pdf 文件。"
-        )
+        raise HTTPException(status_code=400, detail="暂时只支持 .txt 和 .pdf 文件。")
 
     doc_id = str(uuid.uuid4())
     saved_path = UPLOAD_DIR / f"{doc_id}{suffix}"
@@ -122,10 +112,7 @@ async def summarize_document(file: UploadFile = File(...), summary_mode: str = F
     try:
         text = parse_document(str(saved_path))
     except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"文档解析失败：{e}"
-        )
+        raise HTTPException(status_code=400, detail=f"文档解析失败：{e}")
     t1 = time.time()
     print(f"[耗时] parse_document: {t1 - t0:.2f}s")
 
@@ -149,12 +136,13 @@ async def summarize_document(file: UploadFile = File(...), summary_mode: str = F
 
     index_path = INDEX_DIR / f"{doc_id}.json"
     index_path.write_text(
-        json.dumps(index_data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
+        json.dumps(index_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     t2 = time.time()
-    summary = summarize_text(original_filename, limited_text, max_tokens=mode_cfg["max_tokens"])
+    summary = summarize_text(
+        original_filename, limited_text, max_tokens=mode_cfg["max_tokens"]
+    )
     t3 = time.time()
     print(f"[耗时] summarize_text: {t3 - t2:.2f}s")
 
@@ -176,15 +164,14 @@ async def summarize_document(file: UploadFile = File(...), summary_mode: str = F
 
 
 @app.post("/api/documents/summarize/stream")
-async def summarize_document_stream(file: UploadFile = File(...), summary_mode: str = Form("fast")):
+async def summarize_document_stream(
+    file: UploadFile = File(...), summary_mode: str = Form("fast")
+):
     original_filename = file.filename or "unknown"
     suffix = Path(original_filename).suffix.lower()
 
     if suffix not in [".txt", ".pdf"]:
-        raise HTTPException(
-            status_code=400,
-            detail="暂时只支持 .txt 和 .pdf 文件。"
-        )
+        raise HTTPException(status_code=400, detail="暂时只支持 .txt 和 .pdf 文件。")
 
     doc_id = str(uuid.uuid4())
     saved_path = UPLOAD_DIR / f"{doc_id}{suffix}"
@@ -195,10 +182,7 @@ async def summarize_document_stream(file: UploadFile = File(...), summary_mode: 
     try:
         text = parse_document(str(saved_path))
     except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"文档解析失败：{e}"
-        )
+        raise HTTPException(status_code=400, detail=f"文档解析失败：{e}")
 
     mode_cfg = _SUMMARY_MODES.get(summary_mode, _SUMMARY_MODES["fast"])
     char_count = len(text)
@@ -220,8 +204,7 @@ async def summarize_document_stream(file: UploadFile = File(...), summary_mode: 
 
     index_path = INDEX_DIR / f"{doc_id}.json"
     index_path.write_text(
-        json.dumps(index_data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
+        json.dumps(index_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     preview = text[:500]
@@ -229,27 +212,39 @@ async def summarize_document_stream(file: UploadFile = File(...), summary_mode: 
 
     def generate():
         try:
-            yield json.dumps({"type": "status", "data": "文档解析完成，正在生成摘要..."}, ensure_ascii=False) + "\n"
+            yield json.dumps(
+                {"type": "status", "data": "文档解析完成，正在生成摘要..."},
+                ensure_ascii=False,
+            ) + "\n"
 
-            yield json.dumps({
-                "type": "meta",
-                "data": {
-                    "summary_mode": summary_mode,
-                    "doc_id": doc_id,
-                    "filename": original_filename,
-                    "file_type": file_type,
-                    "char_count": char_count,
-                    "is_truncated": is_truncated,
-                    "preview": preview,
-                }
-            }, ensure_ascii=False) + "\n"
+            yield json.dumps(
+                {
+                    "type": "meta",
+                    "data": {
+                        "summary_mode": summary_mode,
+                        "doc_id": doc_id,
+                        "filename": original_filename,
+                        "file_type": file_type,
+                        "char_count": char_count,
+                        "is_truncated": is_truncated,
+                        "preview": preview,
+                    },
+                },
+                ensure_ascii=False,
+            ) + "\n"
 
-            for delta in summarize_text_stream(original_filename, limited_text, max_tokens=mode_cfg["max_tokens"]):
-                yield json.dumps({"type": "delta", "data": delta}, ensure_ascii=False) + "\n"
+            for delta in summarize_text_stream(
+                original_filename, limited_text, max_tokens=mode_cfg["max_tokens"]
+            ):
+                yield json.dumps(
+                    {"type": "delta", "data": delta}, ensure_ascii=False
+                ) + "\n"
 
             yield json.dumps({"type": "done", "data": ""}, ensure_ascii=False) + "\n"
         except Exception as e:
-            yield json.dumps({"type": "error", "data": str(e)}, ensure_ascii=False) + "\n"
+            yield json.dumps(
+                {"type": "error", "data": str(e)}, ensure_ascii=False
+            ) + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
@@ -264,7 +259,7 @@ async def upload_document(file: UploadFile = File(...)):
     if suffix not in [".pdf", ".docx", ".txt", ".md", ".xlsx", ".xls"]:
         return {
             "error": f"暂不支持该文件类型：{suffix}",
-            "supported_types": [".pdf", ".docx", ".txt", ".md", ".xlsx", ".xls"]
+            "supported_types": [".pdf", ".docx", ".txt", ".md", ".xlsx", ".xls"],
         }
 
     saved_path = UPLOAD_DIR / f"{doc_id}{suffix}"
@@ -275,10 +270,7 @@ async def upload_document(file: UploadFile = File(...)):
     try:
         text = parse_document(str(saved_path))
     except Exception as e:
-        return {
-            "error": "文档解析失败",
-            "detail": str(e)
-        }
+        return {"error": "文档解析失败", "detail": str(e)}
 
     chunks = chunk_text(text)
 
@@ -290,10 +282,7 @@ async def upload_document(file: UploadFile = File(...)):
             excel_analysis = analyze_excel(str(saved_path))
             chart_paths = generate_excel_charts(str(saved_path), doc_id)
         except Exception as e:
-            excel_analysis = {
-                "error": "Excel 分析或图表生成失败",
-                "detail": str(e)
-            }
+            excel_analysis = {"error": "Excel 分析或图表生成失败", "detail": str(e)}
 
     index_data = {
         "doc_id": doc_id,
@@ -304,13 +293,12 @@ async def upload_document(file: UploadFile = File(...)):
         "total_chunks": len(chunks),
         "chunks": chunks,
         "excel_analysis": excel_analysis,
-        "chart_paths": chart_paths
+        "chart_paths": chart_paths,
     }
 
     index_path = INDEX_DIR / f"{doc_id}.json"
     index_path.write_text(
-        json.dumps(index_data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
+        json.dumps(index_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     add_history("upload", f"上传文档：{original_filename}")
@@ -322,7 +310,7 @@ async def upload_document(file: UploadFile = File(...)):
         "file_type": suffix,
         "total_chars": len(text),
         "total_chunks": len(chunks),
-        "chart_paths": chart_paths
+        "chart_paths": chart_paths,
     }
 
 
@@ -331,29 +319,21 @@ def ask_document(request: AskRequest):
     index_path = INDEX_DIR / f"{request.doc_id}.json"
 
     if not index_path.exists():
-        return {
-            "error": "找不到该 doc_id 对应的文档索引"
-        }
+        return {"error": "找不到该 doc_id 对应的文档索引"}
 
     index_data = json.loads(index_path.read_text(encoding="utf-8"))
     chunks = index_data["chunks"]
 
     related_chunks = retrieve_chunks(request.question, chunks, top_k=4)
 
-    memory_context = {
-        "chunk_id": "memory",
-        "text": memory_to_text(),
-        "score": 0
-    }
+    memory_context = {"chunk_id": "memory", "text": memory_to_text(), "score": 0}
 
     contexts = [memory_context] + related_chunks
 
     answer = ask_llm(request.question, contexts)
 
     report_path = save_markdown_report(
-        doc_id=request.doc_id,
-        question=request.question,
-        answer=answer
+        doc_id=request.doc_id, question=request.question, answer=answer
     )
 
     add_history("ask", f"针对文档 {index_data['filename']} 提问：{request.question}")
@@ -364,15 +344,13 @@ def ask_document(request: AskRequest):
         "question": request.question,
         "answer": answer,
         "related_chunks": related_chunks,
-        "report_path": report_path
+        "report_path": report_path,
     }
 
 
 @app.get("/documents")
 def get_documents():
-    return {
-        "documents": list_documents()
-    }
+    return {"documents": list_documents()}
 
 
 @app.get("/documents/{doc_id}")
@@ -380,9 +358,7 @@ def get_document_info(doc_id: str):
     index_path = INDEX_DIR / f"{doc_id}.json"
 
     if not index_path.exists():
-        return {
-            "error": "找不到该 doc_id 对应的文档索引"
-        }
+        return {"error": "找不到该 doc_id 对应的文档索引"}
 
     index_data = json.loads(index_path.read_text(encoding="utf-8"))
 
@@ -394,7 +370,7 @@ def get_document_info(doc_id: str):
         "total_chars": index_data["total_chars"],
         "total_chunks": index_data["total_chunks"],
         "excel_analysis": index_data.get("excel_analysis"),
-        "chart_paths": index_data.get("chart_paths", [])
+        "chart_paths": index_data.get("chart_paths", []),
     }
 
 
@@ -406,9 +382,7 @@ async def analyze_excel_api(file: UploadFile = File(...)):
     suffix = Path(original_filename).suffix.lower()
 
     if suffix not in [".xlsx", ".xls"]:
-        return {
-            "error": "请上传 .xlsx 或 .xls 文件"
-        }
+        return {"error": "请上传 .xlsx 或 .xls 文件"}
 
     saved_path = UPLOAD_DIR / f"{doc_id}{suffix}"
 
@@ -424,7 +398,7 @@ async def analyze_excel_api(file: UploadFile = File(...)):
         "doc_id": doc_id,
         "filename": original_filename,
         "analysis": analysis,
-        "chart_paths": chart_paths
+        "chart_paths": chart_paths,
     }
 
 
@@ -437,26 +411,18 @@ def get_memory():
 def update_user_memory(request: MemoryUpdateRequest):
     memory = update_memory(request.key, request.value)
 
-    return {
-        "message": "记忆更新成功",
-        "memory": memory
-    }
+    return {"message": "记忆更新成功", "memory": memory}
 
 
 @app.post("/compare")
 def compare_documents(request: CompareRequest):
     if len(request.doc_ids) < 2:
-        return {
-            "error": "至少需要传入两个 doc_id 才能进行多文档对比"
-        }
+        return {"error": "至少需要传入两个 doc_id 才能进行多文档对比"}
 
     try:
         contexts = build_multi_doc_context(request.doc_ids, max_chunks_per_doc=3)
     except Exception as e:
-        return {
-            "error": "构建多文档上下文失败",
-            "detail": str(e)
-        }
+        return {"error": "构建多文档上下文失败", "detail": str(e)}
 
     answer = ask_llm(request.question, contexts)
 
@@ -466,5 +432,5 @@ def compare_documents(request: CompareRequest):
         "doc_ids": request.doc_ids,
         "question": request.question,
         "answer": answer,
-        "contexts": contexts
+        "contexts": contexts,
     }

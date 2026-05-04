@@ -21,10 +21,7 @@
         chunk = text[start:end].strip()
 
         if chunk:
-            chunks.append({
-                "chunk_id": chunk_id,
-                "text": chunk
-            })
+            chunks.append({"chunk_id": chunk_id, "text": chunk})
             chunk_id += 1
 
         start = end - overlap

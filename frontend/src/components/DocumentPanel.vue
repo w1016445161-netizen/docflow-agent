@@ -5,30 +5,56 @@
       <p class="subtitle">上传 TXT / PDF 文档，自动解析并生成结构化摘要</p>
 
       <div class="upload-box">
-        <input
-          type="file"
-          accept=".txt,.pdf"
-          @change="handleFileChange"
-        />
+        <input type="file" accept=".txt,.pdf" @change="handleFileChange" />
 
         <div v-if="selectedFile" class="file-info">
           <p><strong>已选择文件：</strong>{{ selectedFile.name }}</p>
-          <p><strong>文件大小：</strong>{{ formatFileSize(selectedFile.size) }}</p>
+          <p>
+            <strong>文件大小：</strong>{{ formatFileSize(selectedFile.size) }}
+          </p>
         </div>
 
         <div class="mode-selector">
-          <label class="mode-option" :class="{ active: summaryMode === 'fast' }">
-            <input type="radio" v-model="summaryMode" value="fast" :disabled="loading" />
-            <span class="check-mark">{{ summaryMode === 'fast' ? '✓ ' : '' }}</span>快速摘要
+          <label
+            class="mode-option"
+            :class="{ active: summaryMode === 'fast' }"
+          >
+            <input
+              type="radio"
+              v-model="summaryMode"
+              value="fast"
+              :disabled="loading"
+            />
+            <span class="check-mark">{{
+              summaryMode === "fast" ? "✓ " : ""
+            }}</span
+            >快速摘要
           </label>
-          <label class="mode-option" :class="{ active: summaryMode === 'deep' }">
-            <input type="radio" v-model="summaryMode" value="deep" :disabled="loading" />
-            <span class="check-mark">{{ summaryMode === 'deep' ? '✓ ' : '' }}</span>深度摘要
+          <label
+            class="mode-option"
+            :class="{ active: summaryMode === 'deep' }"
+          >
+            <input
+              type="radio"
+              v-model="summaryMode"
+              value="deep"
+              :disabled="loading"
+            />
+            <span class="check-mark">{{
+              summaryMode === "deep" ? "✓ " : ""
+            }}</span
+            >深度摘要
           </label>
         </div>
 
         <button :disabled="loading || !selectedFile" @click="handleSummarize">
-          {{ loading ? (summaryMode === 'deep' ? '深度摘要中...' : '快速摘要中...') : '上传并生成摘要' }}
+          {{
+            loading
+              ? summaryMode === "deep"
+                ? "深度摘要中..."
+                : "快速摘要中..."
+              : "上传并生成摘要"
+          }}
         </button>
       </div>
 
@@ -40,7 +66,11 @@
         <h2>文档摘要结果</h2>
 
         <div class="meta-box">
-          <span>摘要模式：{{ result.summary_mode === 'deep' ? '深度摘要' : '快速摘要' }}</span>
+          <span
+            >摘要模式：{{
+              result.summary_mode === "deep" ? "深度摘要" : "快速摘要"
+            }}</span
+          >
           <span>文件名：{{ result.filename }}</span>
           <span>类型：{{ result.file_type }}</span>
           <span>字符数：{{ result.char_count }}</span>
@@ -51,14 +81,21 @@
         <div class="summary-text" v-html="renderedSummary"></div>
 
         <div class="action-bar">
-          <button class="action-btn" @click="copyText(result.summary, 'summary')">
-            {{ copiedSummary ? '已复制' : '复制摘要' }}
+          <button
+            class="action-btn"
+            @click="copyText(result.summary, 'summary')"
+          >
+            {{ copiedSummary ? "已复制" : "复制摘要" }}
           </button>
           <button class="action-btn" @click="exportMarkdown()">
             导出 Markdown
           </button>
-          <button class="action-btn" :disabled="loading" @click="handleRegenerateSummary">
-            {{ loading ? '生成中...' : '重新生成摘要' }}
+          <button
+            class="action-btn"
+            :disabled="loading"
+            @click="handleRegenerateSummary"
+          >
+            {{ loading ? "生成中..." : "重新生成摘要" }}
           </button>
         </div>
 
@@ -85,10 +122,7 @@
             rows="3"
           ></textarea>
 
-          <button
-            :disabled="qaLoading || !question.trim()"
-            @click="handleAsk"
-          >
+          <button :disabled="qaLoading || !question.trim()" @click="handleAsk">
             {{ qaLoading ? "查询中..." : "提问" }}
           </button>
         </div>
@@ -97,14 +131,22 @@
           <button
             class="action-btn"
             :disabled="qaLoading || !docId"
-            @click="handleQuickAsk('请基于这份文档生成一份适合学生复习的学习笔记，包括核心概念、重点知识、易混点和复习建议。')"
+            @click="
+              handleQuickAsk(
+                '请基于这份文档生成一份适合学生复习的学习笔记，包括核心概念、重点知识、易混点和复习建议。',
+              )
+            "
           >
             生成学习笔记
           </button>
           <button
             class="action-btn"
             :disabled="qaLoading || !docId"
-            @click="handleQuickAsk('请从这份文档中提取可执行的任务、待办事项、后续问题或改进建议。')"
+            @click="
+              handleQuickAsk(
+                '请从这份文档中提取可执行的任务、待办事项、后续问题或改进建议。',
+              )
+            "
           >
             生成行动项
           </button>
@@ -119,13 +161,18 @@
           <div class="answer-text" v-html="renderedAnswer"></div>
 
           <div class="action-bar">
-            <button class="action-btn" @click="copyText(qaResult.answer, 'answer')">
-              {{ copiedAnswer ? '已复制' : '复制回答' }}
+            <button
+              class="action-btn"
+              @click="copyText(qaResult.answer, 'answer')"
+            >
+              {{ copiedAnswer ? "已复制" : "复制回答" }}
             </button>
           </div>
 
           <details v-if="qaResult.related_chunks?.length" class="chunks-box">
-            <summary>查看相关原文片段（{{ qaResult.related_chunks.length }} 段）</summary>
+            <summary>
+              查看相关原文片段（{{ qaResult.related_chunks.length }} 段）
+            </summary>
             <div
               v-for="(chunk, idx) in qaResult.related_chunks"
               :key="idx"
@@ -135,24 +182,40 @@
                 <span class="chunk-id">片段 #{{ chunk.chunk_id }}</span>
                 <span class="chunk-score">相关度: {{ chunk.score }}</span>
               </div>
-              <pre>{{ chunk.text.substring(0, 300) }}{{ chunk.text.length > 300 ? '...' : '' }}</pre>
+              <pre
+                >{{ chunk.text.substring(0, 300)
+                }}{{ chunk.text.length > 300 ? "..." : "" }}</pre
+              >
             </div>
           </details>
         </div>
 
         <div v-if="qaHistory.length" class="qa-history">
           <h3>问答历史（{{ qaHistory.length }}）</h3>
-          <div v-for="(item, idx) in [...qaHistory].reverse()" :key="idx" class="history-item">
+          <div
+            v-for="(item, idx) in [...qaHistory].reverse()"
+            :key="idx"
+            class="history-item"
+          >
             <div class="history-q"><strong>Q:</strong> {{ item.question }}</div>
             <div class="history-a" v-html="md.render(item.answer || '')"></div>
             <details v-if="item.related_chunks?.length" class="chunks-box">
-              <summary>查看相关原文片段（{{ item.related_chunks.length }} 段）</summary>
-              <div v-for="(chunk, cIdx) in item.related_chunks" :key="cIdx" class="chunk-item">
+              <summary>
+                查看相关原文片段（{{ item.related_chunks.length }} 段）
+              </summary>
+              <div
+                v-for="(chunk, cIdx) in item.related_chunks"
+                :key="cIdx"
+                class="chunk-item"
+              >
                 <div class="chunk-meta">
                   <span class="chunk-id">片段 #{{ chunk.chunk_id }}</span>
                   <span class="chunk-score">相关度: {{ chunk.score }}</span>
                 </div>
-                <pre>{{ chunk.text.substring(0, 300) }}{{ chunk.text.length > 300 ? '...' : '' }}</pre>
+                <pre
+                  >{{ chunk.text.substring(0, 300)
+                  }}{{ chunk.text.length > 300 ? "..." : "" }}</pre
+                >
               </div>
             </details>
           </div>
@@ -243,22 +306,26 @@ async function handleSummarize() {
   result.value = { summary: "" };
 
   try {
-    await summarizeDocumentStream(selectedFile.value, (event) => {
-      if (event.type === "meta") {
-        docId.value = event.data.doc_id;
-        result.value = {
-          ...event.data,
-          summary: "",
-        };
-      } else if (event.type === "delta") {
-        result.value = {
-          ...result.value,
-          summary: (result.value.summary || "") + event.data,
-        };
-      } else if (event.type === "error") {
-        throw new Error(event.data);
-      }
-    }, summaryMode.value);
+    await summarizeDocumentStream(
+      selectedFile.value,
+      (event) => {
+        if (event.type === "meta") {
+          docId.value = event.data.doc_id;
+          result.value = {
+            ...event.data,
+            summary: "",
+          };
+        } else if (event.type === "delta") {
+          result.value = {
+            ...result.value,
+            summary: (result.value.summary || "") + event.data,
+          };
+        } else if (event.type === "error") {
+          throw new Error(event.data);
+        }
+      },
+      summaryMode.value,
+    );
   } catch (err) {
     error.value = err.message || "文档摘要生成失败，请检查后端服务。";
     result.value = null;
@@ -277,19 +344,23 @@ async function handleRegenerateSummary() {
   qaError.value = "";
   result.value = { summary: "" };
   try {
-    await summarizeDocumentStream(selectedFile.value, (event) => {
-      if (event.type === "meta") {
-        docId.value = event.data.doc_id;
-        result.value = { ...event.data, summary: "" };
-      } else if (event.type === "delta") {
-        result.value = {
-          ...result.value,
-          summary: (result.value.summary || "") + event.data,
-        };
-      } else if (event.type === "error") {
-        throw new Error(event.data);
-      }
-    }, summaryMode.value);
+    await summarizeDocumentStream(
+      selectedFile.value,
+      (event) => {
+        if (event.type === "meta") {
+          docId.value = event.data.doc_id;
+          result.value = { ...event.data, summary: "" };
+        } else if (event.type === "delta") {
+          result.value = {
+            ...result.value,
+            summary: (result.value.summary || "") + event.data,
+          };
+        } else if (event.type === "error") {
+          throw new Error(event.data);
+        }
+      },
+      summaryMode.value,
+    );
   } catch (err) {
     error.value = err.message || "文档摘要生成失败，请检查后端服务。";
     result.value = null;

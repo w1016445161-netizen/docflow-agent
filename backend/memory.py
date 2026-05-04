@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-
 MEMORY_PATH = Path("storage/memory.json")
 
 
@@ -10,11 +9,7 @@ def load_memory() -> dict:
     读取用户记忆。
     """
     if not MEMORY_PATH.exists():
-        return {
-            "user_profile": {},
-            "project_preferences": {},
-            "history": []
-        }
+        return {"user_profile": {}, "project_preferences": {}, "history": []}
 
     return json.loads(MEMORY_PATH.read_text(encoding="utf-8"))
 
@@ -25,8 +20,7 @@ def save_memory(memory: dict) -> None:
     """
     MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     MEMORY_PATH.write_text(
-        json.dumps(memory, ensure_ascii=False, indent=2),
-        encoding="utf-8"
+        json.dumps(memory, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
 
@@ -49,10 +43,7 @@ def add_history(event_type: str, content: str) -> dict:
     """
     memory = load_memory()
 
-    memory["history"].append({
-        "event_type": event_type,
-        "content": content
-    })
+    memory["history"].append({"event_type": event_type, "content": content})
 
     save_memory(memory)
 

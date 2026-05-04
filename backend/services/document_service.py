@@ -5,7 +5,6 @@ from typing import Tuple
 from fastapi import UploadFile, HTTPException
 from pypdf import PdfReader
 
-
 MAX_TEXT_CHARS = 12000
 
 

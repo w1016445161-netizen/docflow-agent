@@ -12,7 +12,7 @@ def setup_chinese_font():
         "Microsoft YaHei",
         "SimHei",
         "Arial Unicode MS",
-        "DejaVu Sans"
+        "DejaVu Sans",
     ]
     plt.rcParams["axes.unicode_minus"] = False
 
@@ -22,7 +22,7 @@ def safe_filename(text: str) -> str:
     避免文件名里出现特殊字符。
     """
     text = str(text)
-    for ch in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]:
+    for ch in ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]:
         text = text.replace(ch, "_")
     return text
 
@@ -40,7 +40,7 @@ def add_value_labels(ax):
             textcoords="offset points",
             ha="center",
             va="bottom",
-            fontsize=10
+            fontsize=10,
         )
 
 
@@ -50,7 +50,7 @@ def generate_bar_chart(
     x_col: str,
     y_col: str,
     doc_id: str,
-    output_dir: Path
+    output_dir: Path,
 ) -> str:
     """
     生成柱状图：文本列作为横轴，数值列作为纵轴。
@@ -90,11 +90,7 @@ def generate_bar_chart(
 
 
 def generate_line_chart(
-    df: pd.DataFrame,
-    sheet_name: str,
-    y_col: str,
-    doc_id: str,
-    output_dir: Path
+    df: pd.DataFrame, sheet_name: str, y_col: str, doc_id: str, output_dir: Path
 ) -> str:
     """
     如果没有文本列，就用行号作为横轴生成折线图。
@@ -119,7 +115,7 @@ def generate_line_chart(
             xytext=(0, 6),
             textcoords="offset points",
             ha="center",
-            fontsize=10
+            fontsize=10,
         )
 
     plt.tight_layout()
@@ -177,7 +173,7 @@ def generate_excel_charts(file_path: str, doc_id: str) -> list[str]:
                     x_col=x_col,
                     y_col=y_col,
                     doc_id=doc_id,
-                    output_dir=output_dir
+                    output_dir=output_dir,
                 )
 
                 if chart_path:
@@ -190,7 +186,7 @@ def generate_excel_charts(file_path: str, doc_id: str) -> list[str]:
                     sheet_name=sheet_name,
                     y_col=y_col,
                     doc_id=doc_id,
-                    output_dir=output_dir
+                    output_dir=output_dir,
                 )
 
                 if chart_path:

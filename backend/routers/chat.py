@@ -5,7 +5,6 @@ from pydantic import BaseModel
 
 from backend.services.llm_service import llm_service
 
-
 router = APIRouter(prefix="/api", tags=["chat"])
 
 

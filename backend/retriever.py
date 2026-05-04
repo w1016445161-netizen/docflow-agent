@@ -12,8 +12,7 @@ def tokenize(text: str) -> set[str]:
 
     chinese_chars = re.findall(r"[\u4e00-\u9fff]", text)
     chinese_bigrams = [
-        chinese_chars[i] + chinese_chars[i + 1]
-        for i in range(len(chinese_chars) - 1)
+        chinese_chars[i] + chinese_chars[i + 1] for i in range(len(chinese_chars) - 1)
     ]
 
     return set(english_tokens + chinese_bigrams)
@@ -34,10 +33,7 @@ def retrieve_chunks(question: str, chunks: list[dict], top_k: int = 4) -> list[d
         chunk_tokens = tokenize(chunk["text"])
         score = len(question_tokens & chunk_tokens)
 
-        scored_chunks.append({
-            **chunk,
-            "score": score
-        })
+        scored_chunks.append({**chunk, "score": score})
 
     scored_chunks.sort(key=lambda x: x["score"], reverse=True)
 
@@ -45,12 +41,6 @@ def retrieve_chunks(question: str, chunks: list[dict], top_k: int = 4) -> list[d
 
     # 如果完全没有关键词命中，就默认返回文档开头几个片段，适合“总结全文”类问题
     if all(item["score"] == 0 for item in top_chunks):
-        return [
-            {
-                **chunk,
-                "score": 0
-            }
-            for chunk in chunks[:top_k]
-        ]
+        return [{**chunk, "score": 0} for chunk in chunks[:top_k]]
 
     return top_chunks

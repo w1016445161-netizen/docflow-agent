@@ -5,7 +5,6 @@ from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from openai import OpenAI
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ENV_PATH = PROJECT_ROOT / ".env"
 
@@ -54,9 +53,7 @@ class LLMService:
                 },
             ],
             temperature=temperature,
-            extra_body={
-                "enable_thinking": False
-            },
+            extra_body={"enable_thinking": False},
         )
 
         content = response.choices[0].message.content

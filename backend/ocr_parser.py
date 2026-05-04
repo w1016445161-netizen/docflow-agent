@@ -30,11 +30,7 @@ def render_pdf_page_to_image(page, dpi: int = 200) -> Image.Image:
 
     pix = page.get_pixmap(matrix=matrix, alpha=False)
 
-    image = Image.frombytes(
-        "RGB",
-        [pix.width, pix.height],
-        pix.samples
-    )
+    image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
     return image
 
@@ -78,9 +74,7 @@ def ocr_pdf(file_path: str) -> str:
         image = render_pdf_page_to_image(page, dpi=dpi)
         text = ocr_image(image, lang=lang)
 
-        pages_text.append(
-            f"\n[第 {page_index + 1} 页 OCR 识别结果]\n{text}"
-        )
+        pages_text.append(f"\n[第 {page_index + 1} 页 OCR 识别结果]\n{text}")
 
     doc.close()
 
@@ -106,12 +100,12 @@ def check_ocr_available() -> dict:
             "available": True,
             "version": version,
             "languages": languages,
-            "tesseract_cmd": pytesseract.pytesseract.tesseract_cmd
+            "tesseract_cmd": pytesseract.pytesseract.tesseract_cmd,
         }
 
     except Exception as e:
         return {
             "available": False,
             "error": str(e),
-            "tesseract_cmd": pytesseract.pytesseract.tesseract_cmd
+            "tesseract_cmd": pytesseract.pytesseract.tesseract_cmd,
         }

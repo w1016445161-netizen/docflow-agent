@@ -10,7 +10,6 @@ from backend.services.document_service import (
 )
 from backend.services.llm_service import llm_service
 
-
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 

@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from backend.ocr_parser import ocr_pdf
 from backend.table_analyzer import analyze_excel, excel_analysis_to_text
 
-
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
 
