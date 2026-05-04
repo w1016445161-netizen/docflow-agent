@@ -714,59 +714,19 @@ POST /ask
 
 ### 文档上传与结构化摘要
 
-后续可在此处添加截图：
-
-```text
-docs/images/pdf-summary-result.png
-```
-
-Markdown 示例：
-
-```markdown
 ![文档摘要效果](docs/images/pdf-summary-result.png)
-```
 
 ---
 
 ### 流式摘要输出
 
-后续可在此处添加截图：
-
-```text
-docs/images/streaming-summary.png
-```
+![流式摘要输出](docs/images/streaming-summary.png)
 
 ---
 
 ### 基于文档内容问答
 
-后续可在此处添加截图：
-
-```text
-docs/images/document-qa.png
-```
-
----
-
-### OCR 扫描型 PDF 识别
-
-后续可在此处添加截图：
-
-```text
-docs/images/ocr-summary-result.png
-```
-
----
-
-### Swagger API 文档
-
-后续可在此处添加截图：
-
-```text
-docs/images/swagger-api-docs.png
-```
-
----
+![文档问答与参考片段](docs/images/document-qa.png)
 
 ## 十一、当前项目亮点
 
