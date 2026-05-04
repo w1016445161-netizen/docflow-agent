@@ -91,7 +91,7 @@ def ask_llm(question: str, contexts: list[dict]) -> str:
     return response.choices[0].message.content
 
 
-def summarize_text(filename: str, text: str) -> str:
+def summarize_text(filename: str, text: str, max_tokens: int = 800) -> str:
     client, model = _get_client_and_model()
 
     prompt = f"""请对文档「{filename}」生成结构化摘要。
@@ -131,7 +131,59 @@ def summarize_text(filename: str, text: str) -> str:
                 "content": prompt
             }
         ],
-        temperature=0.3
+        temperature=0.3,
+        max_tokens=max_tokens
     )
 
     return response.choices[0].message.content
+
+
+def summarize_text_stream(filename: str, text: str, max_tokens: int = 800):
+    client, model = _get_client_and_model()
+
+    prompt = f"""请对文档「{filename}」生成结构化摘要。
+所有内容必须严格基于以下文档，不要引入文档中未出现的信息。
+
+请按照以下格式输出：
+
+## 一、文档主要内容
+
+用 3 到 5 句话概括文档核心内容。
+
+## 二、关键信息提取
+
+提取文档中的重要人物、时间、地点、概念、数据、结论或任务。
+
+## 三、结构化要点
+
+用有序列表总结文档中的主要段落或逻辑结构。
+
+## 四、可能的后续问题
+
+提出 3 个与本文内容直接相关的后续问题，不要发散到文档未涉及的领域。
+
+以下是文档内容：
+
+{text}"""
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "system",
+                "content": "你是一个严谨的文档摘要助手。严格基于文档内容生成摘要，不添加文档中不存在的信息。"
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.3,
+        max_tokens=max_tokens,
+        stream=True
+    )
+
+    for chunk in response:
+        delta = chunk.choices[0].delta.content or ""
+        if delta:
+            yield delta

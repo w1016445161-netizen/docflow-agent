@@ -1,9 +1,11 @@
 ﻿import json
 import uuid
 import shutil
+import time
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -11,7 +13,7 @@ from pydantic import BaseModel
 from backend.document_parser import parse_document
 from backend.chunker import chunk_text
 from backend.retriever import retrieve_chunks
-from backend.llm_client import ask_llm, summarize_text
+from backend.llm_client import ask_llm, summarize_text, summarize_text_stream
 from backend.report import save_markdown_report
 from backend.table_analyzer import analyze_excel
 from backend.chart_generator import generate_excel_charts
@@ -39,6 +41,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+_SUMMARY_MODES = {
+    "fast": {"max_chars": 6000, "max_tokens": 800, "label": "快速摘要"},
+    "deep": {"max_chars": 20000, "max_tokens": 1800, "label": "深度摘要"},
+}
 
 UPLOAD_DIR = Path("storage/uploads")
 INDEX_DIR = Path("storage/index")
@@ -95,7 +102,81 @@ def ocr_status():
 
 
 @app.post("/api/documents/summarize")
-async def summarize_document(file: UploadFile = File(...)):
+async def summarize_document(file: UploadFile = File(...), summary_mode: str = Form("fast")):
+    original_filename = file.filename or "unknown"
+    suffix = Path(original_filename).suffix.lower()
+
+    if suffix not in [".txt", ".pdf"]:
+        raise HTTPException(
+            status_code=400,
+            detail="暂时只支持 .txt 和 .pdf 文件。"
+        )
+
+    doc_id = str(uuid.uuid4())
+    saved_path = UPLOAD_DIR / f"{doc_id}{suffix}"
+
+    with saved_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    t0 = time.time()
+    try:
+        text = parse_document(str(saved_path))
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"文档解析失败：{e}"
+        )
+    t1 = time.time()
+    print(f"[耗时] parse_document: {t1 - t0:.2f}s")
+
+    mode_cfg = _SUMMARY_MODES.get(summary_mode, _SUMMARY_MODES["fast"])
+    char_count = len(text)
+    max_chars = mode_cfg["max_chars"]
+    limited_text = text[:max_chars]
+    is_truncated = char_count > max_chars
+
+    chunks = chunk_text(text)
+
+    index_data = {
+        "doc_id": doc_id,
+        "filename": original_filename,
+        "file_path": str(saved_path),
+        "file_type": suffix,
+        "total_chars": char_count,
+        "total_chunks": len(chunks),
+        "chunks": chunks,
+    }
+
+    index_path = INDEX_DIR / f"{doc_id}.json"
+    index_path.write_text(
+        json.dumps(index_data, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
+
+    t2 = time.time()
+    summary = summarize_text(original_filename, limited_text, max_tokens=mode_cfg["max_tokens"])
+    t3 = time.time()
+    print(f"[耗时] summarize_text: {t3 - t2:.2f}s")
+
+    preview = text[:500]
+    file_type = suffix.lstrip(".")
+
+    return {
+        "doc_id": doc_id,
+        "summary_mode": summary_mode,
+        "filename": original_filename,
+        "file_type": file_type,
+        "char_count": char_count,
+        "is_truncated": is_truncated,
+        "preview": preview,
+        "summary": summary,
+        "model": "docflow-agent",
+        "usage": None,
+    }
+
+
+@app.post("/api/documents/summarize/stream")
+async def summarize_document_stream(file: UploadFile = File(...), summary_mode: str = Form("fast")):
     original_filename = file.filename or "unknown"
     suffix = Path(original_filename).suffix.lower()
 
@@ -119,26 +200,58 @@ async def summarize_document(file: UploadFile = File(...)):
             detail=f"文档解析失败：{e}"
         )
 
+    mode_cfg = _SUMMARY_MODES.get(summary_mode, _SUMMARY_MODES["fast"])
     char_count = len(text)
-    max_chars = 12000
+    max_chars = mode_cfg["max_chars"]
     limited_text = text[:max_chars]
     is_truncated = char_count > max_chars
 
-    summary = summarize_text(original_filename, limited_text)
+    chunks = chunk_text(text)
+
+    index_data = {
+        "doc_id": doc_id,
+        "filename": original_filename,
+        "file_path": str(saved_path),
+        "file_type": suffix,
+        "total_chars": char_count,
+        "total_chunks": len(chunks),
+        "chunks": chunks,
+    }
+
+    index_path = INDEX_DIR / f"{doc_id}.json"
+    index_path.write_text(
+        json.dumps(index_data, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
 
     preview = text[:500]
     file_type = suffix.lstrip(".")
 
-    return {
-        "filename": original_filename,
-        "file_type": file_type,
-        "char_count": char_count,
-        "is_truncated": is_truncated,
-        "preview": preview,
-        "summary": summary,
-        "model": "docflow-agent",
-        "usage": None,
-    }
+    def generate():
+        try:
+            yield json.dumps({"type": "status", "data": "文档解析完成，正在生成摘要..."}, ensure_ascii=False) + "\n"
+
+            yield json.dumps({
+                "type": "meta",
+                "data": {
+                    "summary_mode": summary_mode,
+                    "doc_id": doc_id,
+                    "filename": original_filename,
+                    "file_type": file_type,
+                    "char_count": char_count,
+                    "is_truncated": is_truncated,
+                    "preview": preview,
+                }
+            }, ensure_ascii=False) + "\n"
+
+            for delta in summarize_text_stream(original_filename, limited_text, max_tokens=mode_cfg["max_tokens"]):
+                yield json.dumps({"type": "delta", "data": delta}, ensure_ascii=False) + "\n"
+
+            yield json.dumps({"type": "done", "data": ""}, ensure_ascii=False) + "\n"
+        except Exception as e:
+            yield json.dumps({"type": "error", "data": str(e)}, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
 @app.post("/upload")
