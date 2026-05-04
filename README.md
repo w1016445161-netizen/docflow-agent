@@ -1,88 +1,56 @@
-﻿# DocFlow Agent
+# DocFlow Agent
 
-DocFlow Agent 是一个基于 **FastAPI + Vue 3 + 大模型 API** 构建的 AI 文档处理智能体项目。项目面向学习资料、课程论文、实验报告和项目文档等场景，支持用户上传 TXT / PDF 文档，系统自动解析文档内容，并调用大模型生成结构化摘要。
-
-当前版本已经完成从“聊天智能体”到“文档智能体”的第一阶段升级：支持真实大模型 API 调用、文档上传、文本解析、结构化摘要生成，以及 Token 使用情况展示。
-
----
-
-## 项目亮点
-
-- 支持 TXT / PDF 文档上传
-- 后端自动解析文档文本内容
-- 支持可提取文字层的 PDF 文件
-- 调用阿里云百炼 OpenAI-compatible API
-- 使用 qwen3.6-flash 模型生成结构化摘要
-- 前端展示文件名、文件类型、字符数和摘要内容
-- 前端展示输入 Token、输出 Token 和总 Token
-- 支持 Markdown 格式渲染模型输出
-- 前后端分离架构，便于后续扩展 RAG、文档问答和报告生成能力
+DocFlow Agent 是一个基于 **FastAPI + Vue 3 + 阿里云百炼 qwen 模型** 构建的 AI 文档处理智能体项目。项目面向学习资料、课程论文、实验报告和项目文档等场景，支持文档上传解析、结构化摘要生成、文档问答、多文档对比等功能。
 
 ---
 
 ## 当前已实现功能
 
-### 1. 大模型聊天接口
+### 1. 文档上传与结构化摘要
 
-项目已经接入真实大模型 API，后端通过统一的 `LLMService` 封装模型调用逻辑。
-
-用户可以在前端输入问题，后端调用大模型接口并返回回答内容和 Token 使用情况。
-
-已实现链路：
-
-```text
-Vue 前端
-↓
-FastAPI 后端 /api/chat
-↓
-LLMService
-↓
-阿里云百炼 qwen3.6-flash
-↓
-返回模型回复与 Token 使用情况
-```
-
----
-
-### 2. 文档上传与摘要生成
-
-用户可以上传 TXT 或 PDF 文件，后端自动识别文件类型并提取文本内容，然后构造文档摘要 Prompt，调用大模型生成结构化摘要。
+用户上传 TXT / PDF 文档，后端自动解析文本内容，调用大模型生成结构化摘要。摘要包含：文档主要内容、关键信息提取、结构化要点、可能的后续问题。
 
 已实现链路：
 
 ```text
 上传 TXT / PDF 文档
 ↓
-后端解析文档文本
+backend/document_parser.py 解析文本
 ↓
-构造结构化摘要 Prompt
+backend/llm_client.py :: summarize_text() 构造摘要 prompt
 ↓
-调用大模型生成摘要
+调用阿里云百炼 qwen 模型
 ↓
-前端展示摘要结果和 Token 消耗
+返回结构化摘要
 ```
 
-当前摘要结果包含：
+### 2. 文档问答
 
-- 文档主要内容
-- 关键信息提取
-- 结构化要点
-- 可能的后续问题
-- 模型名称
-- 输入 Token、输出 Token、总 Token
+用户上传文档后，可以对文档内容进行提问。后端将文档切分成片段，通过关键词匹配检索相关片段，构造提示词后调用大模型生成回答。
 
----
+```text
+用户提问
+↓
+backend/retriever.py 检索相关片段
+↓
+backend/llm_client.py :: ask_llm() 构造 QA prompt
+↓
+调用阿里云百炼 qwen 模型
+↓
+返回回答
+```
 
-### 3. 前端结果展示
+### 3. 多文档对比
 
-前端基于 Vue 3 实现，支持：
+同时对比多个文档，分析共同点和差异。
 
-- 文档上传
-- 文件信息展示
-- 结构化摘要展示
-- Markdown 渲染
-- Token 使用情况展示
-- 错误提示展示
+### 4. Excel 分析与图表生成
+
+上传 Excel 文件后自动分析表格结构、统计数值字段，并生成柱状图 / 折线图。
+
+### 5. OCR 扫描型 PDF 支持
+
+上传扫描型 PDF 时，如果普通文本提取结果过少，自动回退到 OCR 识别。需要本地安装 Tesseract-OCR，并在 `.env` 中启用配置。
 
 ---
 
@@ -90,75 +58,48 @@ LLMService
 
 ### 后端
 
-- Python
-- FastAPI
-- Uvicorn
-- pypdf
-- python-multipart
-- python-dotenv
-- OpenAI Python SDK
-- 阿里云百炼 OpenAI-compatible API
+| 模块 | 职责 |
+|---|---|
+| `backend/main.py` | 后端主入口，路由注册 |
+| `backend/document_parser.py` | TXT/PDF/DOCX/Excel 文档解析 |
+| `backend/ocr_parser.py` | Tesseract OCR 识别 |
+| `backend/llm_client.py` | LLM 调用封装（ask_llm / summarize_text） |
+| `backend/chunker.py` | 长文本切分 |
+| `backend/retriever.py` | 关键词匹配检索 |
+| `backend/memory.py` | 用户记忆与历史记录 |
+| `backend/report.py` | Markdown 报告保存 |
+| `backend/table_analyzer.py` | Excel 表格分析 |
+| `backend/chart_generator.py` | Excel 图表生成 |
+| `backend/multi_doc.py` | 多文档上下文构建 |
 
 ### 前端
 
-- Vue 3
-- Vite
+- Vue 3 + Vite
 - JavaScript
-- markdown-it
+- markdown-it（Markdown 渲染）
 - Fetch API
 
 ### 模型服务
 
-- 阿里云百炼
-- qwen3.6-flash
-- OpenAI-compatible API 调用方式
-
----
-
-## 项目目录结构
-
-```text
-docflow-agent/
-├── backend/
-│   ├── main.py
-│   ├── routers/
-│   │   ├── chat.py
-│   │   └── document.py
-│   └── services/
-│       ├── llm_service.py
-│       └── document_service.py
-│
-├── frontend/
-│   ├── src/
-│   │   ├── api/
-│   │   │   ├── chat.js
-│   │   │   └── document.js
-│   │   ├── components/
-│   │   │   ├── ChatPanel.vue
-│   │   │   └── DocumentPanel.vue
-│   │   └── App.vue
-│   ├── package.json
-│   └── vite.config.js
-│
-├── README.md
-└── .gitignore
-```
+- 阿里云百炼（OpenAI-compatible API）
+- qwen3.6-plus / qwen3.6-flash
 
 ---
 
 ## 后端启动方式
 
-进入项目根目录：
+在项目根目录执行：
 
 ```powershell
 cd D:\projects\docflow_agent
+python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-创建并激活虚拟环境后，安装依赖：
+API 文档地址：http://127.0.0.1:8000/docs
 
-```powershell
-pip install fastapi uvicorn openai python-dotenv python-multipart pypdf
-```
+---
+
+## 环境变量配置
 
 在项目根目录创建 `.env` 文件：
 
@@ -166,114 +107,46 @@ pip install fastapi uvicorn openai python-dotenv python-multipart pypdf
 LLM_PROVIDER=aliyun
 DASHSCOPE_API_KEY=你的阿里云百炼API_KEY
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-LLM_MODEL=qwen3.6-flash
+LLM_MODEL=qwen3.6-plus
 ```
 
-启动后端：
+`backend/.env` 中包含 OCR 相关配置（可选）：
 
-```powershell
-python -m uvicorn backend.main:app --reload
-```
-
-后端接口文档地址：
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-健康检查接口：
-
-```text
-http://127.0.0.1:8000/api/health
+```env
+OCR_ENABLED=true
+TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
+OCR_LANG=chi_sim+eng
+OCR_DPI=200
+OCR_MAX_PAGES=20
+OCR_MIN_TEXT_LENGTH=80
 ```
 
 ---
 
 ## 前端启动方式
 
-进入前端目录：
-
 ```powershell
 cd D:\projects\docflow_agent\frontend
-```
-
-安装依赖：
-
-```powershell
 npm install
-```
-
-创建前端环境变量文件 `.env.development`：
-
-```env
-VITE_API_BASE_URL=http://127.0.0.1:8000
-```
-
-启动前端：
-
-```powershell
 npm run dev
 ```
 
-前端访问地址：
-
-```text
-http://localhost:5173
-```
+前端访问地址：http://localhost:5173
 
 ---
 
 ## API 接口说明
 
-### 1. 聊天接口
-
-```text
-POST /api/chat
-```
-
-请求示例：
-
-```json
-{
-  "message": "请用三句话介绍这个文档智能体项目。"
-}
-```
-
-返回示例：
-
-```json
-{
-  "model": "qwen3.6-flash",
-  "content": "模型回复内容",
-  "usage": {
-    "prompt_tokens": 41,
-    "completion_tokens": 90,
-    "total_tokens": 131
-  }
-}
-```
-
----
-
-### 2. 文档摘要接口
+### 1. 文档上传摘要
 
 ```text
 POST /api/documents/summarize
 ```
 
-请求类型：
+请求类型：`multipart/form-data`
+参数：`file`（TXT 或 PDF 文件）
 
-```text
-multipart/form-data
-```
-
-参数：
-
-```text
-file: 上传的 TXT 或 PDF 文件
-```
-
-返回示例：
+返回示例（200）：
 
 ```json
 {
@@ -282,122 +155,161 @@ file: 上传的 TXT 或 PDF 文件
   "char_count": 6763,
   "is_truncated": false,
   "preview": "提取出的前 500 字文本",
-  "summary": "结构化摘要内容",
-  "model": "qwen3.6-flash",
-  "usage": {
-    "prompt_tokens": 4672,
-    "completion_tokens": 1017,
-    "total_tokens": 5689
-  }
+  "summary": "结构化摘要内容（Markdown 格式）",
+  "model": "docflow-agent",
+  "usage": null
 }
+```
+
+说明：
+- 当前仅支持 `.txt` 和 `.pdf` 格式
+- `is_truncated` 表示文档是否超过 12000 字符限制
+- `usage` 当前为 `null`，token 消耗数据将在后续版本补充
+- 摘要 prompt 使用 `summarize_text()`，严格基于文档内容生成
+
+### 2. 文档问答
+
+```text
+POST /ask
+```
+
+请求参数（JSON）：
+
+```json
+{
+  "doc_id": "文档ID",
+  "question": "文档的主要内容是什么？"
+}
+```
+
+说明：
+- 需要先通过 `/upload` 上传文档获取 `doc_id`
+- 系统自动检索文档中的相关片段后生成回答
+
+### 3. 文档上传（通用）
+
+```text
+POST /upload
+```
+
+请求类型：`multipart/form-data`
+参数：`file`
+
+支持格式：`.txt`、`.pdf`、`.docx`、`.md`、`.xlsx`、`.xls`
+
+上传后自动解析文档文本，切分为片段并建立索引。如果是 Excel 文件还会自动分析表格结构和生成图表。
+
+### 4. 多文档对比
+
+```text
+POST /compare
+```
+
+请求参数（JSON）：
+
+```json
+{
+  "doc_ids": ["doc_id_1", "doc_id_2"],
+  "question": "请比较这些文档的主要内容、共同点和差异点。"
+}
+```
+
+### 5. 其他接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/` | 根路径 |
+| GET | `/health` | 健康检查 |
+| GET | `/api/health` | 健康检查 |
+| GET | `/documents` | 已上传文档列表 |
+| GET | `/documents/{doc_id}` | 单个文档信息 |
+| POST | `/excel/analyze` | Excel 单独分析 |
+| GET | `/memory` | 查看用户记忆 |
+| POST | `/memory` | 更新用户记忆 |
+| GET | `/ocr/status` | OCR 环境检查 |
+
+### 6. 聊天接口（历史遗留，未启用）
+
+```text
+POST /api/chat
+```
+
+说明：该接口定义在 `backend/routers/chat.py` 中，但目前**未注册到主应用**，访问将返回 404。如需启用，需要在 `main.py` 中添加 `app.include_router()`。
+
+---
+
+## OCR 说明
+
+项目通过 `Tesseract-OCR` 支持扫描型 PDF 的自动识别。
+
+- 当普通 PDF 文本提取结果少于 80 字符时，自动启用 OCR fallback
+- 需要本地安装 Tesseract-OCR（Windows / Linux / macOS）
+- 在 `backend/.env` 中配置 `TESSERACT_CMD` 指向 Tesseract 可执行文件路径
+- 可通过 `GET /ocr/status` 接口检查 OCR 环境是否就绪
+
+---
+
+## 项目结构
+
+```text
+docflow_agent/
+├── backend/
+│   ├── main.py                  # FastAPI 主应用，路由注册
+│   ├── document_parser.py       # 文档解析（TXT/PDF/DOCX/Excel）
+│   ├── ocr_parser.py            # Tesseract OCR 识别
+│   ├── llm_client.py            # LLM 调用（ask_llm / summarize_text）
+│   ├── chunker.py               # 长文本切分
+│   ├── retriever.py             # 关键词检索
+│   ├── memory.py                # 用户记忆
+│   ├── report.py                # Markdown 报告保存
+│   ├── table_analyzer.py        # Excel 表格分析
+│   ├── chart_generator.py       # Excel 图表生成
+│   ├── multi_doc.py             # 多文档对比上下文
+│   ├── .env                     # OCR 配置
+│   │
+│   ├── routers/                 # ⚠️ 历史遗留，当前未注册
+│   │   ├── chat.py              #     /api/chat（未注册）
+│   │   └── document.py          #     /api/documents/summarize（未注册）
+│   └── services/                # ⚠️ 历史遗留，当前未使用
+│       ├── llm_service.py
+│       └── document_service.py
+│
+├── frontend/
+│   ├── src/
+│   │   ├── api/
+│   │   │   ├── document.js
+│   │   │   └── chat.js
+│   │   ├── components/
+│   │   │   ├── DocumentPanel.vue
+│   │   │   └── ChatPanel.vue
+│   │   └── App.vue
+│   ├── package.json
+│   └── vite.config.js
+│
+├── scripts/
+│   ├── start_agent.ps1
+│   ├── stop_agent.ps1
+│   └── status_agent.ps1
+│
+├── .env                         # LLM 配置（LLM_PROVIDER / DASHSCOPE_API_KEY / LLM_BASE_URL / LLM_MODEL）
+├── .gitignore
+└── README.md
 ```
 
 ---
 
-## 当前版本限制
-
-当前版本支持：
-
-- TXT 文档
-- 可提取文字层的 PDF 文档
-
-暂不支持：
-
-- 扫描版 PDF
-- 图片型 PDF
-- 手写文档
-- 多文件批量处理
-- 长文档向量检索问答
-
-如果上传扫描版 PDF，系统可能提示：
+## 版本
 
 ```text
-没有从文档中提取到有效文本。如果是扫描版 PDF，需要后续接入 OCR。
+v0.3.0
 ```
-
-后续可以接入 PaddleOCR、Tesseract 或云 OCR 服务，扩展扫描版 PDF 识别能力。
 
 ---
 
 ## 后续计划
 
-### v0.3 文档问答能力
-
-- 上传文档后保存文档文本
-- 用户基于当前文档继续提问
-- 后端基于文档内容生成回答
-- 实现“上传文档 + 连续问答”的基础 Agent 体验
-
-### v0.4 RAG 检索增强
-
-- 文档切分
-- 向量化存储
-- 相似片段检索
-- 基于检索结果回答问题
-- 支持长文档问答
-
-### v0.5 报告生成
-
-- 根据文档内容生成 Markdown 报告
-- 支持摘要、问答记录和结构化结论导出
-- 支持实验报告、课程笔记和项目说明文档生成
-
-### v0.6 部署与演示
-
-- 支持局域网访问
-- 支持云服务器部署
-- 增加项目演示截图
-- 完善在线访问说明
-
----
-
-## 安全说明
-
-项目中的 API Key 只应保存在后端 `.env` 文件中，不应写入前端代码，也不应提交到 GitHub。
-
-`.gitignore` 中应包含：
-
-```gitignore
-.env
-.env.*
-frontend/.env.development
-```
-
----
-
-## 项目状态
-
-当前版本：
-
-```text
-DocFlow Agent v0.2
-```
-
-已完成：
-
-```text
-真实大模型 API 接入
-TXT / PDF 文档上传
-文档文本解析
-结构化摘要生成
-Token 使用情况展示
-Markdown 渲染
-```
-
-下一阶段目标：
-
-```text
-基于已上传文档的智能问答
-```
-
----
-
-## 项目适用场景
-
-- 课程论文摘要
-- 实验报告整理
-- 学习笔记总结
-- PDF 资料快速理解
-- 项目文档问答
-- 简历项目展示
-- AI Agent 学习实践
+- 向量检索 RAG 增强，支持更长文档的精准问答
+- Token 使用量统计和展示
+- 文档批量处理
+- Markdown 报告导出增强
+- 局域网 / 云服务器部署支持
