@@ -1,0 +1,27 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: docflow-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: sqlite:///./storage/docflow.db
+      TESSERACT_CMD: /usr/bin/tesseract
+      OCR_ENABLED: "true"
+    volumes:
+      - ./storage:/app/storage
+      - ./logs:/app/logs
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: docflow-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend

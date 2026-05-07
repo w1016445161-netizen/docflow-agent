@@ -1,0 +1,15 @@
+.env
+backend/.env
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.git/
+storage/
+logs/
+node_modules/
+frontend/dist/
+*.pyc
+*.db
+.claude/
+tests/

@@ -1,12 +1,12 @@
 ﻿# DocFlow Agent
 
-DocFlow Agent 是一个基于 **FastAPI + Vue 3 + OpenAI-compatible LLM API** 构建的 AI 文档解析与问答系统原型。
+DocFlow Agent 是一个基于 **FastAPI + Vue 3 + OpenAI-compatible LLM API** 构建的 AI 文档解析与 RAG 问答系统原型。
 
-项目面向学习资料、课程论文、实验报告、项目文档等场景，支持文档上传解析、结构化摘要生成、流式摘要输出、文档问答、参考片段展示、学习笔记生成、行动项提取、Markdown 报告导出、扫描型 PDF OCR 识别等功能。
+项目面向学习资料、课程论文、实验报告、项目文档等场景，支持文档上传解析、结构化摘要生成、流式摘要输出、扫描型 PDF OCR 识别、基础 RAG 检索、文档问答、参考片段展示、学习笔记生成、行动项提取、Markdown 报告导出、数据库状态管理、结构化日志、pytest smoke tests 和 Docker Compose 本地一键启动。
 
-当前版本：**v0.3.4**
+当前版本：**v0.5.0**
 
-> 当前项目定位为个人学习与作品集展示项目，重点实践 AI 应用开发中的文档解析、OCR、大模型调用、流式输出、文档问答、数据库状态管理、统一异常处理、结构化日志和后端 smoke tests 等工程流程，不等同于生产级企业文档平台。
+> 当前项目定位为个人学习与作品集展示项目，重点实践 AI 应用开发中的文档解析、OCR、大模型调用、流式输出、基础 RAG、数据库状态管理、统一异常处理、结构化日志、后端测试和 Docker 本地部署等工程流程，不等同于生产级企业文档平台。
 
 ---
 
@@ -23,14 +23,28 @@ DocFlow Agent 的核心目标是将常见文档处理流程自动化：
 ↓
 保存文档元数据与处理状态
 ↓
-调用大模型生成摘要或回答问题
+文档分块 chunk
 ↓
-展示结构化结果和参考片段
+生成基础 embedding
 ↓
-支持复制、问答、导出报告
+保存本地向量索引
+↓
+用户基于文档提问
+↓
+top-k 检索相关片段
+↓
+调用大模型生成回答
+↓
+写入问答记录
+↓
+展示回答、参考片段与报告
 ```
 
-当前项目已实现从“普通聊天 Demo”到“AI 文档解析与问答系统原型”的基础升级。前端支持单文档上传、摘要、问答、参考片段展示、学习笔记生成和 Markdown 报告导出；后端支持文档解析、OCR 回退识别、关键词检索、LLM 调用、Excel 分析、多文档对比、本地记忆、数据库持久化、文档状态管理、统一异常处理、结构化日志和 pytest smoke tests。
+当前项目已实现从“普通聊天 Demo”到“AI 文档解析与 RAG 问答系统原型”的基础升级。
+
+前端支持单文档上传、摘要、问答、参考片段展示、学习笔记生成、行动项提取、复制和 Markdown 报告导出。
+
+后端支持文档解析、OCR 回退识别、文本分块、基础 RAG 检索、LLM 调用、Excel 分析、多文档对比、本地记忆、数据库持久化、文档状态管理、统一异常处理、结构化日志、pytest smoke tests 和 Docker Compose 本地容器化启动。
 
 ---
 
@@ -124,38 +138,41 @@ backend/ocr_parser.py 调用 Tesseract OCR
 进入 LLM 摘要 / 问答流程
 ```
 
-OCR 需要本机安装 Tesseract-OCR，并在环境变量中配置路径。
+本地运行时需要安装 Tesseract-OCR，并在环境变量中配置路径。Docker 运行时后端镜像会预装 Tesseract OCR 和中英文语言包。
 
 ---
 
-### 4. 基于文档内容的问答
+### 4. 基础 RAG 文档问答
 
-用户上传文档并生成摘要后，可以继续围绕当前文档进行提问。
+用户上传文档后，可以围绕当前文档进行提问。系统会优先使用基础 RAG 检索相关片段，再调用大模型生成回答。
 
-问答链路：
+当前 RAG 问答链路：
 
 ```text
+用户上传文档
+↓
+解析文本
+↓
+chunk_text() 切分文档片段
+↓
+embedding_service.py 生成 256 维 hash embedding
+↓
+vector_store.py 保存到 storage/vector_index/{doc_id}.json
+↓
 用户提问
 ↓
-后端根据 doc_id 读取文档索引
+问题向量化
 ↓
-backend/retriever.py 检索相关文档片段
+向量相似度 top-k 检索相关 chunk
 ↓
-backend/llm_client.py::ask_llm() 构造问答 prompt
+拼接上下文
 ↓
-调用阿里云百炼 qwen 模型
+ask_llm() 调用大模型生成回答
 ↓
-返回基于文档内容的回答和相关参考片段
+返回 answer 和 related_chunks
 ↓
 写入 qa_records 表
 ```
-
-前端支持：
-
-- 展示模型回答
-- 展示相关原文片段
-- 保存当前页面问答历史
-- 复制回答内容
 
 当前问答接口返回结构包含：
 
@@ -165,10 +182,27 @@ backend/llm_client.py::ask_llm() 构造问答 prompt
   "filename": "文件名",
   "question": "用户原始问题",
   "answer": "模型回答",
-  "related_chunks": [],
+  "related_chunks": [
+    {
+      "chunk_id": 0,
+      "text": "相关片段",
+      "score": 0.83,
+      "retrieval_method": "embedding"
+    }
+  ],
   "report_path": "Markdown 报告路径"
 }
 ```
+
+如果向量索引缺失、读取失败或向量检索异常，系统会自动回退到原关键词检索，并在 `related_chunks` 中标记：
+
+```json
+{
+  "retrieval_method": "fallback_keyword"
+}
+```
+
+当前 RAG 是轻量本地实现，重点是跑通工程链路。它不等同于生产级语义检索系统，后续可以替换为真实 embedding 模型和向量数据库。
 
 ---
 
@@ -217,10 +251,10 @@ GET /documents/{doc_id}/status
 当前采用兼容迁移策略：
 
 1. 数据库保存文档元数据、处理状态和问答记录。
-2. 原始上传文件、chunk、本地索引仍保留在本地文件系统。
+2. 原始上传文件、chunk、本地索引和向量索引仍保留在本地文件系统。
 3. 旧 JSON 文件索引保留可读。
 4. 新上传文档写入数据库。
-5. 后续可继续迁移 chunk 和索引到数据库或向量存储。
+5. 后续可继续迁移 chunk、索引和向量数据到数据库或专用向量存储。
 
 ---
 
@@ -300,12 +334,16 @@ backend/chart_generator.py
 | Word 解析 | python-docx | 解析 `.docx` |
 | Excel 解析 | pandas + openpyxl | 表格读取与统计 |
 | 图表生成 | matplotlib | 生成柱状图 / 折线图 |
+| 文本切分 | 自定义 chunker | 将长文档切分为可检索片段 |
+| 基础 Embedding | hash embedding | 基于字符 n-gram 的轻量向量化方案 |
+| 向量索引 | 本地 JSON vector index | 保存 chunk embedding，支持 top-k 检索 |
 | ORM | SQLAlchemy | 管理文档元数据、文档状态和问答记录 |
 | 数据库迁移 | Alembic | 管理数据库表结构迁移 |
 | 默认数据库 | SQLite | 本地零配置数据库 |
 | 测试框架 | pytest | 后端 smoke tests |
 | 日志系统 | Python logging + JSON formatter | 结构化日志记录 |
 | 异常处理 | FastAPI exception_handler | 统一处理业务异常、HTTP 异常和未捕获异常 |
+| 容器化 | Docker / docker-compose | 封装后端、前端、OCR 环境和持久化目录 |
 | 环境变量 | python-dotenv | 读取 `.env` 配置 |
 
 ---
@@ -320,6 +358,7 @@ backend/chart_generator.py
 | markdown-it | 渲染模型返回的 Markdown |
 | Fetch API | 调用后端接口 |
 | ReadableStream | 实现流式摘要显示 |
+| Nginx | Docker 环境下托管前端静态资源 |
 
 当前前端主要使用 `DocumentPanel.vue` 展示文档上传、结构化摘要、文档问答、参考片段、复制和导出功能。`ChatPanel.vue` 为历史遗留或后续扩展组件，当前未作为主页面入口。
 
@@ -407,7 +446,7 @@ global_exception_handler(Exception) 捕获
 | `timestamp` | string | ISO 8601 时间戳 |
 | `level` | string | INFO / WARNING / ERROR |
 | `module` | string | 产生日志的模块名称 |
-| `operation` | string | 操作类型：upload / parse / ocr / llm / query 等 |
+| `operation` | string | 操作类型：upload / parse / ocr / llm / query / embedding / retrieve 等 |
 | `request_id` | string | 本次请求的唯一标识，贯穿整个调用链 |
 | `duration_ms` | number / null | 操作耗时，单位毫秒 |
 | `user_id` | string / null | 用户 ID，当前预留 |
@@ -421,6 +460,9 @@ global_exception_handler(Exception) 捕获
 | 文档上传 | 开始 / 完成 / 失败 |
 | PDF 解析 | 解析方式选择、起止、耗时 |
 | OCR 识别 | 触发原因、页数、DPI、语言、耗时 |
+| Embedding | 向量生成开始 / 完成 / 失败 |
+| 向量索引 | 保存成功 / 加载失败 / fallback |
+| RAG 检索 | 检索开始 / 完成 / 回退关键词检索 |
 | LLM 调用 | 请求开始 / 响应完成 / 失败，prompt 预览长度，耗时 |
 | 文档问答 | 请求 doc_id、问题长度、检索片段数、回答耗时 |
 | 数据库写入 | 文档记录创建、状态更新、问答记录保存 |
@@ -449,7 +491,7 @@ global_exception_handler(Exception) 捕获
 
 1. 业务代码无需显式传递 `request_id` 参数，保持函数签名干净。
 2. 即使发生未捕获异常，错误响应中仍包含 `request_id`，便于定位日志。
-3. 同一次上传、解析、OCR、LLM 调用、问答流程可以通过同一个 `request_id` 串联。
+3. 同一次上传、解析、OCR、embedding、RAG 检索、LLM 调用、问答保存流程可以通过同一个 `request_id` 串联。
 4. 后续如果接入前端错误提示或日志平台，可以直接通过 `request_id` 查找完整调用链。
 
 ---
@@ -503,8 +545,8 @@ uploaded → parsing → parsed → summarizing → ready
 1. 旧有 JSON 文件索引保留可读。
 2. `GET /documents` 同时兼容数据库记录和旧 JSON 文件。
 3. 当前阶段仅将文档元数据、处理状态和问答记录迁入数据库。
-4. 文档 chunk、索引和上传文件仍保留在本地文件系统。
-5. 后续可继续升级为数据库索引或向量检索存储。
+4. 文档 chunk、索引、向量索引和上传文件仍保留在本地文件系统。
+5. 后续可继续升级为数据库索引或专用向量检索存储。
 
 #### 为什么默认使用 SQLite
 
@@ -512,9 +554,103 @@ uploaded → parsing → parsed → summarizing → ready
 
 ---
 
-### 5. pytest Smoke Tests
+### 5. 基础 RAG 检索架构
 
-项目新增后端 smoke tests，用于验证核心 API 和数据库写入流程，避免后续数据库、RAG、状态管理等改造时破坏主链路。
+项目将原有关键词检索升级为基础 RAG 检索流程。
+
+#### 上传阶段
+
+```text
+上传文档
+↓
+解析文本
+↓
+chunk_text() 文档分块
+↓
+embed_texts() 生成 chunk embedding
+↓
+save_vectors() 保存本地向量索引
+```
+
+向量索引保存路径：
+
+```text
+storage/vector_index/{doc_id}.json
+```
+
+索引结构示例：
+
+```json
+{
+  "doc_id": "example-doc-id",
+  "chunks": [
+    {
+      "chunk_id": 0,
+      "text": "文档片段内容",
+      "embedding": [0.1, -0.2, 0.03]
+    }
+  ]
+}
+```
+
+#### 问答阶段
+
+```text
+用户问题
+↓
+问题向量化
+↓
+读取当前 doc_id 对应向量索引
+↓
+计算 query embedding 与 chunk embedding 的相似度
+↓
+选取 top-k 相关片段
+↓
+构造上下文
+↓
+调用 LLM 生成回答
+↓
+返回 answer 和 related_chunks
+```
+
+#### fallback 机制
+
+如果以下任一情况发生：
+
+1. 向量索引文件不存在
+2. 向量索引读取失败
+3. embedding 生成异常
+4. 相似度检索结果为空
+5. 向量检索出现其他异常
+
+系统会自动回退到原关键词检索：
+
+```text
+RAG 检索失败
+↓
+fallback_keyword
+↓
+关键词检索相关 chunk
+↓
+继续调用 LLM 回答
+```
+
+这样可以避免因为向量索引问题导致 `/ask` 整个接口不可用。
+
+#### 当前设计边界
+
+当前 embedding 为轻量 hash embedding，主要用于跑通 RAG 工程流程，不能等同于真实语义 embedding。后续可以替换为：
+
+- 本地 ONNX embedding 模型
+- sentence-transformers
+- OpenAI-compatible embedding API
+- Chroma / FAISS / Milvus / pgvector 等向量存储
+
+---
+
+### 6. pytest Smoke Tests
+
+项目新增后端 smoke tests，用于验证核心 API、数据库写入和 RAG 主链路，避免后续数据库、RAG、状态管理等改造时破坏主流程。
 
 当前测试覆盖：
 
@@ -525,11 +661,14 @@ uploaded → parsing → parsed → summarizing → ready
 | `test_document_status_after_upload` | 文档状态查询，验证 `status=parsed`、`parse_method=text` |
 | `test_ask_writes_qa_record` | 文档问答、`question/answer` 返回结构、`qa_records` 写入 |
 | `test_invalid_file_type_returns_error` | 非法文件类型错误响应，避免未捕获 traceback |
+| `test_upload_creates_vector_index` | 上传 TXT 后生成本地向量索引 |
+| `test_ask_uses_rag_retrieval` | `/ask` 返回带 `retrieval_method` 的相关片段 |
+| `test_rag_fallback_when_vector_missing` | 向量索引缺失时自动回退关键词检索 |
 
 测试设计：
 
 1. 使用 `DOCFLOW_DATABASE_URL` 指向临时 SQLite 数据库，避免污染真实 `storage/docflow.db`。
-2. 使用 `tmp_path` 和 monkeypatch 隔离上传目录、索引目录和输出目录。
+2. 使用 `tmp_path` 和 monkeypatch 隔离上传目录、索引目录、向量目录和输出目录。
 3. 使用 monkeypatch mock `backend.main.ask_llm`、`summarize_text`、`summarize_text_stream`，避免测试依赖真实 LLM API。
 4. 每个测试前后重建数据库表，保证测试之间相互独立。
 
@@ -548,14 +687,68 @@ python -m pytest -q tests/
 
 ---
 
-### 6. 后续工程化计划
+### 7. Docker Compose 本地部署
+
+项目支持 Docker / docker-compose 本地一键启动，用于降低项目复现成本。
+
+#### 容器结构
+
+| 服务 | 说明 |
+|---|---|
+| `backend` | FastAPI 后端服务，负责文档解析、OCR、RAG 检索、LLM 调用和数据库访问 |
+| `frontend` | Vue 3 前端静态页面，构建后由 Nginx 托管 |
+
+#### 后端容器启动流程
+
+```text
+构建 Python 镜像
+↓
+安装 Tesseract OCR 与系统依赖
+↓
+安装 backend/requirements.txt
+↓
+执行 alembic upgrade head
+↓
+启动 uvicorn backend.main:app
+```
+
+#### 前端容器启动流程
+
+```text
+使用 Node 镜像安装依赖
+↓
+执行 npm run build
+↓
+使用 Nginx 托管 dist 静态文件
+↓
+映射到宿主机 5173 端口
+```
+
+#### 数据持久化
+
+Docker Compose 将以下目录挂载到宿主机：
+
+| 目录 | 说明 |
+|---|---|
+| `storage/` | 保存上传文件、SQLite 数据库、chunk 索引和向量索引 |
+| `logs/` | 保存后端结构化日志 |
+
+这样即使容器删除，本地数据和日志也不会丢失。
+
+#### 当前定位
+
+当前 Docker 配置主要用于本地一键演示和环境复现，不是完整生产部署方案。生产环境仍建议使用 PostgreSQL / MySQL、对象存储、HTTPS、反向代理、日志收集和更严格的密钥管理。
+
+---
+
+### 8. 后续工程化计划
 
 后续工程化方向包括：
 
-1. 接入 Embedding 模型与向量存储，将关键词检索升级为语义检索。
-2. 增加摘要接口和流式摘要接口的测试。
-3. 根据项目规模决定是否引入 Celery / Redis 处理长耗时异步任务。
-4. 增加 Docker / docker-compose，简化本地部署与演示流程。
+1. 将当前 hash embedding 替换为真实语义 embedding。
+2. 将本地 JSON 向量索引升级为 Chroma、FAISS、pgvector 或其他向量存储。
+3. 增加摘要接口和流式摘要接口的测试。
+4. 根据项目规模决定是否引入 Celery / Redis 处理长耗时异步任务。
 5. 后续如有多用户需求，再引入用户系统和 JWT 鉴权。
 
 ---
@@ -565,12 +758,15 @@ python -m pytest -q tests/
 ```text
 docflow-agent/
 ├── backend/
+│   ├── Dockerfile              # 后端 Docker 镜像构建文件
 │   ├── main.py                  # FastAPI 主应用，当前后端主入口
 │   ├── document_parser.py       # 文档解析，支持 TXT/PDF/DOCX/MD/Excel
 │   ├── ocr_parser.py            # Tesseract OCR 识别扫描型 PDF
 │   ├── llm_client.py            # LLM 调用，包含 ask_llm / summarize_text / summarize_text_stream
 │   ├── chunker.py               # 长文本切分
-│   ├── retriever.py             # 关键词检索
+│   ├── retriever.py             # 关键词检索 + 基础 RAG 检索
+│   ├── embedding_service.py     # 轻量 hash embedding
+│   ├── vector_store.py          # 本地 JSON 向量索引保存、读取与检索
 │   ├── memory.py                # 本地用户记忆
 │   ├── report.py                # Markdown 报告保存
 │   ├── table_analyzer.py        # Excel 表格分析
@@ -601,10 +797,12 @@ docflow-agent/
 │
 ├── tests/
 │   ├── __init__.py
-│   ├── conftest.py              # pytest fixture、临时数据库、mock LLM
-│   └── test_smoke.py            # 后端 smoke tests
+│   ├── conftest.py              # pytest fixture、临时数据库、mock LLM、临时存储目录
+│   └── test_smoke.py            # 后端 smoke tests 与 RAG 测试
 │
 ├── frontend/
+│   ├── Dockerfile               # 前端 Docker 镜像构建文件
+│   ├── nginx.conf               # Nginx 静态资源服务配置
 │   ├── src/
 │   │   ├── api/
 │   │   │   ├── document.js
@@ -625,7 +823,9 @@ docflow-agent/
 │   └── images/
 │
 ├── storage/                     # 本地运行数据，已加入 .gitignore
-├── logs/                        # 本地日志目录，建议加入 .gitignore
+├── logs/                        # 本地日志目录，已加入 .gitignore
+├── docker-compose.yml           # Docker Compose 一键启动配置
+├── .dockerignore                # Docker 构建忽略文件
 ├── alembic.ini                  # Alembic 配置文件
 ├── .env.example                 # 环境变量示例
 ├── .gitignore
@@ -725,6 +925,12 @@ OCR_MIN_TEXT_LENGTH=80
 | `OCR_MAX_PAGES` | OCR 最多处理页数 |
 | `OCR_MIN_TEXT_LENGTH` | 普通 PDF 提取文本少于该值时启用 OCR |
 
+Docker 环境下，`TESSERACT_CMD` 可设置为：
+
+```env
+TESSERACT_CMD=/usr/bin/tesseract
+```
+
 ---
 
 ## 八、数据库初始化
@@ -769,11 +975,17 @@ alembic upgrade head
 
 注意：生产或重要数据环境不要直接删除数据库。
 
+Docker 启动时会自动执行：
+
+```text
+alembic upgrade head
+```
+
 ---
 
 ## 九、安装 Tesseract-OCR
 
-如果需要识别扫描型 PDF，需要先安装 Tesseract-OCR。
+如果使用本地非 Docker 方式运行，并且需要识别扫描型 PDF，需要先安装 Tesseract-OCR。
 
 ### Windows
 
@@ -796,11 +1008,52 @@ eng
 GET /ocr/status
 ```
 
+如果使用 Docker 方式运行，后端镜像中已预装 Tesseract OCR 和中英文语言包。
+
 ---
 
 ## 十、启动项目
 
-### 方式一：使用脚本启动
+### 方式一：Docker Compose 一键启动
+
+确保已经安装并启动 Docker Desktop。
+
+在项目根目录执行：
+
+```powershell
+docker compose up --build
+```
+
+启动成功后访问：
+
+```text
+后端 API 文档：http://127.0.0.1:8000/docs
+前端页面：http://localhost:5173
+```
+
+查看容器状态：
+
+```powershell
+docker compose ps
+```
+
+停止服务：
+
+```powershell
+docker compose down
+```
+
+说明：
+
+1. `backend` 容器会自动执行 `alembic upgrade head`，确保数据库表结构已初始化。
+2. `storage/` 和 `logs/` 会挂载到宿主机，用于保存本地运行数据和日志。
+3. 后端容器暴露 `8000` 端口。
+4. 前端容器使用 Nginx 托管静态文件，并映射到宿主机 `5173` 端口。
+5. 当前 Docker 配置用于本地演示，不是生产级部署方案。
+
+---
+
+### 方式二：使用 PowerShell 脚本启动
 
 在项目根目录执行：
 
@@ -822,7 +1075,7 @@ GET /ocr/status
 
 ---
 
-### 方式二：手动启动后端
+### 方式三：手动启动后端
 
 在项目根目录执行：
 
@@ -838,7 +1091,7 @@ http://127.0.0.1:8000/docs
 
 ---
 
-### 方式三：手动启动前端
+### 方式四：手动启动前端
 
 ```powershell
 cd frontend
@@ -853,7 +1106,159 @@ http://localhost:5173
 
 ---
 
-## 十一、API 接口说明
+## 十一、Docker 部署说明
+
+项目支持 Docker 容器化一键启动，本地无需手动安装 Python、Node.js 或 Tesseract 即可运行。
+
+### 前置要求
+
+- 安装 Docker Desktop
+- 启动 Docker Desktop，并确认 Docker Engine 正常运行
+
+验证命令：
+
+```powershell
+docker version
+docker compose version
+```
+
+### 第一步：配置 `.env` 文件
+
+在项目根目录复制 `.env.example` 为 `.env`，并填入真实的 API Key：
+
+```bash
+cp .env.example .env
+```
+
+Windows PowerShell 可以执行：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+编辑 `.env`，至少填入：
+
+```env
+LLM_PROVIDER=aliyun
+DASHSCOPE_API_KEY=你的阿里云百炼 API Key
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+LLM_MODEL=qwen3.6-flash
+DATABASE_URL=sqlite:///./storage/docflow.db
+TESSERACT_CMD=/usr/bin/tesseract
+```
+
+> `.env` 文件已加入 `.gitignore` 和 `.dockerignore`，不要提交真实密钥。
+
+### 第二步：启动服务
+
+```bash
+docker compose up --build
+```
+
+首次构建需要下载基础镜像、安装系统依赖和 Python / Node 依赖，耗时取决于网络环境。后续启动可使用：
+
+```bash
+docker compose up
+```
+
+### 访问地址
+
+| 服务 | 地址 |
+|---|---|
+| 后端 Swagger 文档 | http://localhost:8000/docs |
+| 后端健康检查 | http://localhost:8000/health |
+| OCR 状态 | http://localhost:8000/ocr/status |
+| 前端页面 | http://localhost:5173 |
+
+### 查看容器状态
+
+```powershell
+docker compose ps
+```
+
+成功状态示例：
+
+```text
+NAME               SERVICE    STATUS
+docflow-backend    backend    Up
+docflow-frontend   frontend   Up
+```
+
+### 停止服务
+
+```bash
+docker compose down
+```
+
+### 数据持久化
+
+`storage/` 和 `logs/` 目录通过 Docker volume 挂载到宿主机：
+
+| 宿主机目录 | 容器目录 | 说明 |
+|---|---|---|
+| `./storage` | `/app/storage` | 上传文件、SQLite 数据库、chunk 索引、向量索引 |
+| `./logs` | `/app/logs` | 结构化日志文件 |
+
+容器删除后，这些数据保留在宿主机上，重新启动即可恢复。
+
+### 容器启动流程
+
+```text
+docker compose up
+  ├── backend 容器
+  │     ├── 安装 Python 依赖
+  │     ├── 预装 Tesseract OCR 中英文语言包
+  │     ├── 自动执行 alembic upgrade head
+  │     └── 启动 uvicorn backend.main:app --host 0.0.0.0 --port 8000
+  │
+  └── frontend 容器
+        ├── 构建阶段：npm install → npm run build
+        └── 运行阶段：nginx 托管静态文件，端口 80 映射到宿主机 5173
+```
+
+### 常见问题
+
+#### 1. Docker 命令无法识别
+
+说明 Docker Desktop 未安装或未加入 PATH。
+
+```powershell
+docker version
+```
+
+如果该命令不可用，请先安装并启动 Docker Desktop。
+
+#### 2. Docker Engine 未运行
+
+如果出现：
+
+```text
+failed to connect to the docker API
+```
+
+请打开 Docker Desktop，等待左下角显示 `Engine running`。
+
+#### 3. 拉取镜像失败或 apt 502
+
+Docker 构建时可能因为网络问题访问 Docker Hub 或 Debian 源失败。可以重试：
+
+```powershell
+docker compose build --no-cache backend
+docker compose up
+```
+
+当前 Dockerfile 已为 `apt-get` 增加重试参数，并使用兼容性更稳定的 Debian bookworm slim 镜像。
+
+### 当前边界
+
+1. 本地演示版，非生产级 Kubernetes 部署方案。
+2. SQLite 适合单机演示，真实多用户部署应切换 PostgreSQL / MySQL。
+3. 当前没有配置 HTTPS、反向代理、对象存储和远程日志平台。
+4. OCR 依赖 Tesseract，虽然 Docker 镜像已预装中英文语言包，但复杂扫描件识别质量仍受图片质量影响。
+
+---
+
+## 十二、API 接口说明
 
 ### 1. 非流式文档摘要
 
@@ -951,6 +1356,7 @@ multipart/form-data
 - 上传后会自动解析文档文本
 - 文本会被切分为片段并建立本地索引
 - 文档元数据会写入 `documents` 表
+- 文档 chunk 会生成基础 embedding 并写入本地向量索引
 - Excel 文件会额外进行表格分析和图表生成
 - 返回结果中包含 `doc_id`，可用于后续文档问答
 
@@ -983,7 +1389,8 @@ POST /ask
     {
       "chunk_id": 0,
       "text": "相关原文片段",
-      "score": 2
+      "score": 0.83,
+      "retrieval_method": "embedding"
     }
   ],
   "report_path": "storage/outputs/example_report.md"
@@ -993,7 +1400,8 @@ POST /ask
 说明：
 
 - 需要先上传文档并获取 `doc_id`
-- 系统会检索相关文档片段
+- 系统会优先使用基础 RAG 检索相关文档片段
+- 如果向量索引不可用，会自动回退关键词检索
 - 然后调用大模型生成基于文档内容的回答
 - 问答记录会写入 `qa_records` 表
 - 前端会展示回答和相关原文片段
@@ -1089,6 +1497,12 @@ GET /ocr/status
 }
 ```
 
+Docker 环境下，`tesseract_cmd` 通常为：
+
+```text
+/usr/bin/tesseract
+```
+
 ---
 
 ### 10. 其他接口
@@ -1122,7 +1536,7 @@ POST /ask
 
 ---
 
-## 十二、测试说明
+## 十三、测试说明
 
 ### 1. 运行后端 smoke tests
 
@@ -1133,7 +1547,7 @@ python -m pytest -q tests/
 当前通过结果示例：
 
 ```text
-5 passed
+8 passed
 ```
 
 ### 2. 编译检查
@@ -1142,7 +1556,23 @@ python -m pytest -q tests/
 python -m compileall backend tests
 ```
 
-### 3. PowerShell 中文请求注意事项
+### 3. Docker 启动验证
+
+```powershell
+docker compose ps
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod http://127.0.0.1:8000/api/health
+Invoke-RestMethod http://127.0.0.1:8000/ocr/status | ConvertTo-Json -Depth 10
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:8000/docs
+http://localhost:5173
+```
+
+### 4. PowerShell 中文请求注意事项
 
 PowerShell 中直接手写中文 JSON 时，可能出现请求体编码问题。推荐使用 UTF-8 byte array 或 JSON 文件方式发送请求。
 
@@ -1167,7 +1597,7 @@ Invoke-RestMethod `
 
 ---
 
-## 十三、效果展示
+## 十四、效果展示
 
 ### 文档上传与结构化摘要
 
@@ -1187,7 +1617,7 @@ Invoke-RestMethod `
 
 ---
 
-## 十四、当前项目亮点
+## 十五、当前项目亮点
 
 1. 实现文档上传、解析、摘要、问答的完整主链路
 2. 支持普通 PDF 与扫描型 PDF 自动解析
@@ -1196,52 +1626,82 @@ Invoke-RestMethod `
 5. 支持流式摘要输出，前端可以边生成边显示模型结果
 6. 通过专用 `summarize_text()` / `summarize_text_stream()` prompt 生成结构化摘要，减少模型发散
 7. 摘要接口返回 `doc_id`，支持摘要后继续围绕当前文档提问
-8. 支持基于当前文档的问答，并展示相关原文片段
-9. 支持问答历史、复制摘要、复制回答和 Markdown 报告导出
-10. 支持一键生成学习笔记和行动项
-11. 引入统一异常处理体系，按文件处理、OCR、LLM 调用等模块划分业务错误码
-12. 引入 request_id 全链路追踪和 JSON 结构化日志，便于定位文档上传、解析、OCR、LLM 调用等关键流程
-13. 引入 SQLAlchemy + Alembic，管理文档元数据、处理状态和问答记录
-14. 设计 `uploaded / parsing / parsed / summarizing / ready / failed` 文档状态流转，并提供状态查询接口
-15. 新增 pytest smoke tests，覆盖健康检查、TXT 上传、状态查询、文档问答和问答记录写入等核心链路
-16. LLM 调用统一读取根目录 `.env` 配置，便于切换 OpenAI-compatible 服务商
-17. 支持 Excel 表格分析和图表生成
-18. 提供 PowerShell 脚本简化 Windows 本地启动与停止
+8. 支持基础 RAG 文档问答，上传后为 chunk 生成 embedding 并保存本地向量索引
+9. 问答时优先使用 top-k 向量检索构造上下文，异常时自动回退关键词检索
+10. 支持问答历史、复制摘要、复制回答和 Markdown 报告导出
+11. 支持一键生成学习笔记和行动项
+12. 引入统一异常处理体系，按文件处理、OCR、LLM 调用等模块划分业务错误码
+13. 引入 request_id 全链路追踪和 JSON 结构化日志，便于定位文档上传、解析、OCR、embedding、RAG、LLM 调用等关键流程
+14. 引入 SQLAlchemy + Alembic，管理文档元数据、处理状态和问答记录
+15. 设计 `uploaded / parsing / parsed / summarizing / ready / failed` 文档状态流转，并提供状态查询接口
+16. 新增 pytest smoke tests，覆盖健康检查、TXT 上传、状态查询、文档问答、向量索引生成和 fallback 等核心链路
+17. 使用 Docker / docker-compose 封装 FastAPI 后端、Vue 3 前端、Tesseract OCR 环境和 Alembic 数据库迁移流程，支持本地一键启动演示
+18. LLM 调用统一读取根目录 `.env` 配置，便于切换 OpenAI-compatible 服务商
+19. 支持 Excel 表格分析和图表生成
+20. 提供 PowerShell 脚本简化 Windows 本地启动与停止
 
 ---
 
-## 十五、当前限制
+## 十六、当前限制
 
 1. 前端当前主要围绕单文档摘要与问答流程，暂未提供完整多文档管理页面
 2. `/api/documents/summarize` 和 `/api/documents/summarize/stream` 当前主要支持 TXT / PDF
-3. OCR 依赖本机 Tesseract 环境，不适合无配置直接部署
-4. 文档检索目前主要基于关键词匹配，还没有接入 Embedding 模型和向量数据库
-5. Token 使用量统计尚未完整展示到前端
-6. Excel 分析与图表生成能力主要在后端，前端展示还可以继续完善
+3. 当前基础 RAG 使用 hash embedding，语义表达能力弱于真实 embedding 模型
+4. 当前向量索引使用本地 JSON 文件，适合本地演示，不适合大规模文档和高并发检索
+5. Excel 分析与图表生成能力主要在后端，前端展示还可以继续完善
+6. Token 使用量统计尚未完整展示到前端
 7. `routers/` 和 `services/` 目录属于历史遗留 / 实验性结构，当前主运行链路仍是 `backend/main.py + 扁平模块`
-8. 当前数据库主要保存文档元数据、处理状态和问答记录，chunk、索引和上传文件仍依赖本地文件存储
+8. 当前数据库主要保存文档元数据、处理状态和问答记录，chunk、索引、向量索引和上传文件仍依赖本地文件存储
 9. 当前暂未实现用户系统、JWT 鉴权和多用户隔离
 10. 当前日志主要用于本地调试，尚未接入远程日志平台
 11. 当前 pytest 主要覆盖后端主链路 smoke tests，尚未覆盖 OCR、PDF、Excel、流式摘要和多文档对比等复杂场景
+12. 当前 Docker 配置主要用于本地演示，暂未包含生产级 HTTPS、反向代理、对象存储、远程数据库和日志平台
 
 ---
 
-## 十六、后续计划
+## 十七、后续计划
 
-- 接入 Embedding 模型与向量检索，增强 RAG 问答能力
+- 将 hash embedding 替换为真实语义 embedding 模型
+- 将本地 JSON 向量索引升级为 Chroma / FAISS / pgvector 等向量存储
 - 增加摘要接口和流式摘要接口测试
 - 增加 Token 使用量统计与前端展示
 - 完善前端文档问答交互体验
 - 增加多文档管理与多文档对比前端界面
 - 优化 OCR 识别结果清洗与页面级来源展示
 - 增强 Markdown 报告导出能力
-- 支持 Docker / docker-compose 本地部署
 - 支持局域网或云服务器部署
 - 如后续需要多用户场景，再引入用户系统、JWT 鉴权和权限隔离
+- 如后续 OCR 或摘要任务耗时明显，再引入 Celery / Redis 异步任务队列
 
 ---
 
-## 十七、版本记录
+## 十八、版本记录
+
+### v0.5.0
+
+- 新增 Docker 容器化支持，`docker compose up` 一键启动 backend + frontend
+- 后端 Dockerfile 封装 FastAPI、Python 依赖、Tesseract OCR 和 Alembic 迁移流程
+- 前端 Dockerfile 使用 `node:20-alpine` 多阶段构建，并通过 `nginx:alpine` 托管静态资源
+- `storage/` 和 `logs/` 通过 Docker volume 持久化到宿主机
+- 容器启动时自动执行 `alembic upgrade head` 数据库迁移
+- 新增 `.dockerignore`，排除 `.env`、`.venv/`、`storage/`、`logs/`、`node_modules/` 等本地文件
+- 新增前端 `nginx.conf`，支持 Vue Router history 模式
+- 修复 Docker 构建中 Debian 依赖包名兼容问题，并为 apt 安装增加重试参数
+
+---
+
+### v0.4.0
+
+- 新增基础 RAG 检索流程
+- 新增 `backend/embedding_service.py`，使用轻量 hash embedding 将文本转换为 256 维向量
+- 新增 `backend/vector_store.py`，使用本地 JSON 文件保存 chunk embedding
+- 上传文档后自动为 chunk 生成向量索引，默认保存到 `storage/vector_index/{doc_id}.json`
+- `/ask` 从关键词检索升级为优先使用向量 top-k 检索构造上下文
+- 保留关键词检索 fallback，当向量索引缺失或检索失败时仍可完成问答
+- `related_chunks` 新增 `retrieval_method` 字段，用于标记 `embedding` 或 `fallback_keyword`
+- 新增 RAG smoke tests，覆盖向量索引生成、RAG 检索和 fallback 场景
+
+---
 
 ### v0.3.4
 
@@ -1306,9 +1766,9 @@ Invoke-RestMethod `
 
 ---
 
-## 十八、安全说明
+## 十九、安全说明
 
-项目中的 `.env` 文件包含 API Key 等敏感信息，已加入 `.gitignore`。
+项目中的 `.env` 文件包含 API Key 等敏感信息，已加入 `.gitignore` 和 `.dockerignore`。
 
 请不要提交以下文件或目录：
 
@@ -1322,6 +1782,7 @@ logs/
 __pycache__/
 .pytest_cache/
 *.pyc
+*.db
 ```
 
 如果 API Key 曾经被公开展示，建议立即在服务商控制台删除或轮换该 Key。
