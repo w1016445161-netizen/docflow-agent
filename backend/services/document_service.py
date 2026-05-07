@@ -1,9 +1,15 @@
+import logging
+import time
 from io import BytesIO
 from pathlib import Path
 from typing import Tuple
 
 from fastapi import UploadFile, HTTPException
 from pypdf import PdfReader
+
+from backend.core.logging import log_event
+
+_logger = logging.getLogger(__name__)
 
 MAX_TEXT_CHARS = 12000
 
@@ -17,8 +23,12 @@ async def extract_text_from_upload(file: UploadFile) -> Tuple[str, str, int]:
     file_type: 文件类型
     char_count: 原始文本字符数
     """
+    t0 = time.time()
     filename = file.filename or ""
     suffix = Path(filename).suffix.lower()
+
+    log_event(_logger, logging.INFO, f"文档提取开始：{filename}",
+              operation="parse", extra_fields={"file_type": suffix})
 
     content = await file.read()
 
@@ -44,6 +54,11 @@ async def extract_text_from_upload(file: UploadFile) -> Tuple[str, str, int]:
             status_code=400,
             detail="没有从文档中提取到有效文本。如果是扫描版 PDF，需要后续接入 OCR。",
         )
+
+    duration = (time.time() - t0) * 1000
+    log_event(_logger, logging.INFO, f"文档提取完成：{filename}",
+              operation="parse", duration_ms=duration,
+              extra_fields={"file_type": file_type, "char_count": len(text)})
 
     return text, file_type, len(text)
 

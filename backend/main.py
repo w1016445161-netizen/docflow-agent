@@ -2,10 +2,12 @@
 import uuid
 import shutil
 import time
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -21,10 +23,30 @@ from backend.memory import load_memory, update_memory, add_history, memory_to_te
 from backend.multi_doc import list_documents, build_multi_doc_context
 from backend.ocr_parser import check_ocr_available
 
+from backend.core.response import ApiResponse
+from backend.core.exceptions import AppException
+from backend.core.logging import (
+    setup_logging,
+    set_request_id,
+    reset_request_id,
+    log_event,
+)
+
+_logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理：启动时初始化日志系统，关闭时清理。"""
+    setup_logging()
+    yield
+
+
 app = FastAPI(
     title="DocFlow-Agent API",
     description="文档智能体后端服务",
     version="0.3.0",
+    lifespan=lifespan,
 )
 
 
@@ -55,6 +77,76 @@ INDEX_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
+
+
+# ── 请求入口中间件 ──
+
+
+@app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    """为每个请求注入 request_id，注入到 contextvars 供日志系统使用。
+
+    设计决策：使用 contextvars 而非 request.state 传递 request_id，
+    因为日志调用分散在各模块的函数中，contextvars 无需层层传参即可读取。
+    """
+    request_id = str(uuid.uuid4())
+    token = set_request_id(request_id)
+    request.state.request_id = request_id
+    start_time = time.time()
+
+    try:
+        response = await call_next(request)
+        # 在响应头中透传 request_id，方便前端或调试工具追踪
+        response.headers["X-Request-ID"] = request_id
+        return response
+    except Exception:
+        # 理论上所有异常已被 exception_handler 捕获并转为正常响应，
+        # 此处仅做兜底，避免中间件拦截未处理的异常
+        raise
+    finally:
+        reset_request_id(token)
+
+
+# ── 全局异常处理器 ──
+
+# 设计决策：只为 Exception 注册一个处理器，内部通过 isinstance 分发。
+# 虽然需要额外为 HTTPException 注册以确保覆盖 Starlette 的默认处理器，
+# 但实际处理逻辑仍在同一函数中，新增异常类型时无需修改此处。
+@app.exception_handler(HTTPException)
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """全局统一异常处理器。
+
+    处理链：
+    1. AppException（业务异常）       → 使用异常的 code/message/http_status_code
+    2. HTTPException（FastAPI 内置）  → 状态码 * 100 转为业务码
+    3. Exception（未预期异常）        → 50000，记录堆栈
+    """
+    req_id = getattr(request.state, "request_id", "") or ""
+
+    if isinstance(exc, AppException):
+        code = exc.code
+        message = exc.message
+        status_code = exc.http_status_code
+        log_event(_logger, logging.WARNING, message, operation="exception",
+                  error_detail=message, file_id="")
+    elif isinstance(exc, HTTPException):
+        code = exc.status_code * 100
+        message = exc.detail
+        status_code = exc.status_code
+        log_event(_logger, logging.WARNING, f"HTTP {exc.status_code}: {exc.detail}",
+                  operation="exception", error_detail=str(exc.detail))
+    else:
+        code = 50000
+        message = "服务器内部错误"
+        status_code = 500
+        log_event(_logger, logging.ERROR, f"未捕获异常: {exc}",
+                  operation="exception", error_detail=str(exc), exc_info=True)
+
+    resp = ApiResponse(code=code, message=message, data=None, request_id=req_id)
+    return JSONResponse(status_code=status_code, content=resp.model_dump())
+
+
 
 
 class AskRequest(BaseModel):
@@ -98,6 +190,10 @@ async def summarize_document(
 ):
     original_filename = file.filename or "unknown"
     suffix = Path(original_filename).suffix.lower()
+    t0 = time.time()
+
+    log_event(_logger, logging.INFO, f"摘要请求开始：{original_filename}",
+              operation="summarize")
 
     if suffix not in [".txt", ".pdf"]:
         raise HTTPException(status_code=400, detail="暂时只支持 .txt 和 .pdf 文件。")
@@ -108,13 +204,14 @@ async def summarize_document(
     with saved_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    t0 = time.time()
+    t1 = time.time()
     try:
         text = parse_document(str(saved_path))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"文档解析失败：{e}")
-    t1 = time.time()
-    print(f"[耗时] parse_document: {t1 - t0:.2f}s")
+    t2 = time.time()
+    log_event(_logger, logging.INFO, "文档解析完成", operation="parse",
+              duration_ms=(t2 - t1) * 1000, file_id=doc_id)
 
     mode_cfg = _SUMMARY_MODES.get(summary_mode, _SUMMARY_MODES["fast"])
     char_count = len(text)
@@ -139,15 +236,20 @@ async def summarize_document(
         json.dumps(index_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    t2 = time.time()
+    t3 = time.time()
     summary = summarize_text(
         original_filename, limited_text, max_tokens=mode_cfg["max_tokens"]
     )
-    t3 = time.time()
-    print(f"[耗时] summarize_text: {t3 - t2:.2f}s")
+    t4 = time.time()
+    log_event(_logger, logging.INFO, "LLM 摘要完成", operation="llm",
+              duration_ms=(t4 - t3) * 1000, file_id=doc_id)
 
     preview = text[:500]
     file_type = suffix.lstrip(".")
+
+    duration = (time.time() - t0) * 1000
+    log_event(_logger, logging.INFO, f"摘要请求完成：{original_filename}",
+              operation="summarize", duration_ms=duration, file_id=doc_id)
 
     return {
         "doc_id": doc_id,
@@ -252,11 +354,17 @@ async def summarize_document_stream(
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
     doc_id = str(uuid.uuid4())
-
     original_filename = file.filename or "unknown_file"
+    t0 = time.time()
+
+    log_event(_logger, logging.INFO, f"文档上传开始：{original_filename}",
+              operation="upload", file_id=doc_id)
+
     suffix = Path(original_filename).suffix.lower()
 
     if suffix not in [".pdf", ".docx", ".txt", ".md", ".xlsx", ".xls"]:
+        log_event(_logger, logging.WARNING, f"不支持的文件类型：{suffix}",
+                  operation="upload", file_id=doc_id)
         return {
             "error": f"暂不支持该文件类型：{suffix}",
             "supported_types": [".pdf", ".docx", ".txt", ".md", ".xlsx", ".xls"],
@@ -270,6 +378,8 @@ async def upload_document(file: UploadFile = File(...)):
     try:
         text = parse_document(str(saved_path))
     except Exception as e:
+        log_event(_logger, logging.ERROR, f"文档解析失败：{original_filename}",
+                  operation="parse", file_id=doc_id, error_detail=str(e))
         return {"error": "文档解析失败", "detail": str(e)}
 
     chunks = chunk_text(text)
@@ -303,6 +413,10 @@ async def upload_document(file: UploadFile = File(...)):
 
     add_history("upload", f"上传文档：{original_filename}")
 
+    duration = (time.time() - t0) * 1000
+    log_event(_logger, logging.INFO, f"文档上传完成：{original_filename}",
+              operation="upload", duration_ms=duration, file_id=doc_id)
+
     return {
         "message": "文档上传并解析成功",
         "doc_id": doc_id,
@@ -316,9 +430,15 @@ async def upload_document(file: UploadFile = File(...)):
 
 @app.post("/ask")
 def ask_document(request: AskRequest):
+    t0 = time.time()
+    log_event(_logger, logging.INFO, f"问答请求：doc_id={request.doc_id}",
+              operation="query", file_id=request.doc_id)
+
     index_path = INDEX_DIR / f"{request.doc_id}.json"
 
     if not index_path.exists():
+        log_event(_logger, logging.WARNING, f"文档不存在：{request.doc_id}",
+                  operation="query", file_id=request.doc_id)
         return {"error": "找不到该 doc_id 对应的文档索引"}
 
     index_data = json.loads(index_path.read_text(encoding="utf-8"))
@@ -337,6 +457,10 @@ def ask_document(request: AskRequest):
     )
 
     add_history("ask", f"针对文档 {index_data['filename']} 提问：{request.question}")
+
+    duration = (time.time() - t0) * 1000
+    log_event(_logger, logging.INFO, f"问答完成：doc_id={request.doc_id}",
+              operation="query", duration_ms=duration, file_id=request.doc_id)
 
     return {
         "doc_id": request.doc_id,

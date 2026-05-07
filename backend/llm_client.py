@@ -1,8 +1,14 @@
 import os
+import logging
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
+
+from backend.core.logging import log_event
+
+_logger = logging.getLogger(__name__)
 
 _ROOT_DIR = Path(__file__).resolve().parent.parent
 _ENV_PATH = _ROOT_DIR / ".env"
@@ -63,28 +69,48 @@ def build_prompt(question: str, contexts: list[dict]) -> str:
 
 
 def ask_llm(question: str, contexts: list[dict]) -> str:
-    client, model = _get_client_and_model()
-    prompt = build_prompt(question, contexts)
+    t0 = time.time()
+    log_event(_logger, logging.INFO, "LLM 问答请求开始",
+              operation="llm", extra_fields={"question_preview": question[:100]})
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": "你是一个严谨的文档问答助手，只能基于用户提供的文档内容回答。",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.2,
-    )
+    try:
+        client, model = _get_client_and_model()
+        prompt = build_prompt(question, contexts)
 
-    return response.choices[0].message.content
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个严谨的文档问答助手，只能基于用户提供的文档内容回答。",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+        )
+
+        result = response.choices[0].message.content
+        duration = (time.time() - t0) * 1000
+        log_event(_logger, logging.INFO, "LLM 问答完成",
+                  operation="llm", duration_ms=duration,
+                  extra_fields={"model": model, "input_chunks": len(contexts)})
+        return result
+    except Exception as e:
+        duration = (time.time() - t0) * 1000
+        log_event(_logger, logging.ERROR, "LLM 问答失败",
+                  operation="llm", duration_ms=duration, error_detail=str(e))
+        raise
 
 
 def summarize_text(filename: str, text: str, max_tokens: int = 800) -> str:
-    client, model = _get_client_and_model()
+    t0 = time.time()
+    log_event(_logger, logging.INFO, f"LLM 摘要请求开始：{filename}",
+              operation="llm", extra_fields={"input_length": len(text), "max_tokens": max_tokens})
 
-    prompt = f"""请对文档「{filename}」生成结构化摘要。
+    try:
+        client, model = _get_client_and_model()
+
+        prompt = f"""请对文档「{filename}」生成结构化摘要。
 所有内容必须严格基于以下文档，不要引入文档中未出现的信息。
 
 请按照以下格式输出：
@@ -109,26 +135,41 @@ def summarize_text(filename: str, text: str, max_tokens: int = 800) -> str:
 
 {text}"""
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": "你是一个严谨的文档摘要助手。严格基于文档内容生成摘要，不添加文档中不存在的信息。",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.3,
-        max_tokens=max_tokens,
-    )
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个严谨的文档摘要助手。严格基于文档内容生成摘要，不添加文档中不存在的信息。",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=max_tokens,
+        )
 
-    return response.choices[0].message.content
+        result = response.choices[0].message.content
+        duration = (time.time() - t0) * 1000
+        log_event(_logger, logging.INFO, f"LLM 摘要完成：{filename}",
+                  operation="llm", duration_ms=duration,
+                  extra_fields={"model": model, "output_length": len(result)})
+        return result
+    except Exception as e:
+        duration = (time.time() - t0) * 1000
+        log_event(_logger, logging.ERROR, f"LLM 摘要失败：{filename}",
+                  operation="llm", duration_ms=duration, error_detail=str(e))
+        raise
 
 
 def summarize_text_stream(filename: str, text: str, max_tokens: int = 800):
-    client, model = _get_client_and_model()
+    t0 = time.time()
+    log_event(_logger, logging.INFO, f"LLM 流式摘要请求开始：{filename}",
+              operation="llm", extra_fields={"input_length": len(text), "max_tokens": max_tokens})
 
-    prompt = f"""请对文档「{filename}」生成结构化摘要。
+    try:
+        client, model = _get_client_and_model()
+
+        prompt = f"""请对文档「{filename}」生成结构化摘要。
 所有内容必须严格基于以下文档，不要引入文档中未出现的信息。
 
 请按照以下格式输出：
@@ -153,21 +194,33 @@ def summarize_text_stream(filename: str, text: str, max_tokens: int = 800):
 
 {text}"""
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": "你是一个严谨的文档摘要助手。严格基于文档内容生成摘要，不添加文档中不存在的信息。",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.3,
-        max_tokens=max_tokens,
-        stream=True,
-    )
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个严谨的文档摘要助手。严格基于文档内容生成摘要，不添加文档中不存在的信息。",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=max_tokens,
+            stream=True,
+        )
 
-    for chunk in response:
-        delta = chunk.choices[0].delta.content or ""
-        if delta:
-            yield delta
+        total_output = []
+        for chunk in response:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                total_output.append(delta)
+                yield delta
+
+        duration = (time.time() - t0) * 1000
+        log_event(_logger, logging.INFO, f"LLM 流式摘要完成：{filename}",
+                  operation="llm", duration_ms=duration,
+                  extra_fields={"model": model, "output_length": sum(len(s) for s in total_output)})
+    except Exception as e:
+        duration = (time.time() - t0) * 1000
+        log_event(_logger, logging.ERROR, f"LLM 流式摘要失败：{filename}",
+                  operation="llm", duration_ms=duration, error_detail=str(e))
+        raise

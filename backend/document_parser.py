@@ -1,4 +1,6 @@
 import os
+import logging
+import time
 from pathlib import Path
 
 from pypdf import PdfReader
@@ -7,6 +9,10 @@ from dotenv import load_dotenv
 
 from backend.ocr_parser import ocr_pdf
 from backend.table_analyzer import analyze_excel, excel_analysis_to_text
+
+from backend.core.logging import log_event
+
+_logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
@@ -23,6 +29,11 @@ def parse_txt(file_path: str) -> str:
 
 
 def parse_pdf(file_path: str) -> str:
+    """解析 PDF 文件，自动判断使用文本提取还是 OCR。
+
+    日志记录解析方式（text/ocr）及耗时，方便后续分析解析效果。
+    """
+    t0 = time.time()
     texts = []
 
     try:
@@ -31,7 +42,9 @@ def parse_pdf(file_path: str) -> str:
             page_text = page.extract_text() or ""
             if page_text.strip():
                 texts.append(page_text.strip())
-    except Exception:
+    except Exception as exc:
+        log_event(_logger, logging.WARNING, f"PDF 文本提取异常: {exc}",
+                  operation="parse", error_detail=str(exc))
         texts = []
 
     text = "\n\n".join(texts).strip()
@@ -39,10 +52,30 @@ def parse_pdf(file_path: str) -> str:
     min_text_length = int(os.getenv("OCR_MIN_TEXT_LENGTH", "80"))
 
     if len(text) >= min_text_length:
+        duration = (time.time() - t0) * 1000
+        log_event(_logger, logging.INFO, "PDF 文本提取完成",
+                  operation="parse", duration_ms=duration,
+                  extra_fields={"parse_method": "text", "text_length": len(text)})
         return text
 
+    # 文本提取不足，判断是否满足 OCR 触发条件
+    log_event(_logger, logging.INFO,
+              f"PDF 文本提取不足（{len(text)} < {min_text_length}），准备触发 OCR",
+              operation="parse",
+              extra_fields={"parse_method": "text", "text_length": len(text),
+                            "min_text_length": min_text_length})
+
     if _get_bool("OCR_ENABLED", False):
-        return ocr_pdf(file_path)
+        ocr_text = ocr_pdf(file_path)
+        duration = (time.time() - t0) * 1000
+        log_event(_logger, logging.INFO, "PDF OCR 解析完成",
+                  operation="parse", duration_ms=duration,
+                  extra_fields={"parse_method": "ocr", "text_length": len(ocr_text)})
+        return ocr_text
+
+    duration = (time.time() - t0) * 1000
+    log_event(_logger, logging.WARNING, "PDF 解析完成但未提取到有效文本",
+              operation="parse", duration_ms=duration, error_detail="text_length=0")
 
     if text:
         return text
