@@ -2,17 +2,17 @@
 
 DocFlow Agent 是一个基于 **FastAPI + Vue 3 + OpenAI-compatible LLM API** 构建的 AI 文档解析与 RAG 问答系统原型。
 
-项目面向学习资料、课程论文、实验报告、项目文档等场景，支持文档上传解析、结构化摘要生成、流式摘要输出、扫描型 PDF OCR 识别、基础 RAG 检索、文档问答、参考片段展示、学习笔记生成、行动项提取、Markdown 报告导出、数据库状态管理、结构化日志、pytest smoke tests 和 Docker Compose 本地一键启动。
+项目面向学习资料、课程论文、实验报告、项目文档等场景，支持文档上传解析、结构化摘要生成、流式摘要输出、扫描型 PDF OCR 识别、基础 RAG 检索、文档问答、参考片段展示、学习笔记生成、行动项提取、Markdown 报告导出、数据库状态管理、结构化日志、pytest smoke tests、Docker Compose 本地一键启动，以及前端文档工作台展示。
 
-当前版本：**v0.5.0**
+当前版本：**v0.6.0**
 
-> 当前项目定位为个人学习与作品集展示项目，重点实践 AI 应用开发中的文档解析、OCR、大模型调用、流式输出、基础 RAG、数据库状态管理、统一异常处理、结构化日志、后端测试和 Docker 本地部署等工程流程，不等同于生产级企业文档平台。
+> 当前项目定位为个人学习与作品集展示项目，重点实践 AI 应用开发中的文档解析、OCR、大模型调用、流式输出、基础 RAG、数据库状态管理、统一异常处理、结构化日志、后端测试、Docker 本地部署和前端产品化展示等工程流程，不等同于生产级企业文档平台。
 
 ---
 
 ## 一、项目简介
 
-DocFlow Agent 的核心目标是将常见文档处理流程自动化：
+DocFlow Agent 的核心目标是将常见文档处理流程自动化，并通过前端工作台展示文档处理状态和问答结果：
 
 ```text
 上传文档
@@ -37,12 +37,12 @@ top-k 检索相关片段
 ↓
 写入问答记录
 ↓
-展示回答、参考片段与报告
+前端展示文档列表、当前文档、摘要、回答和参考片段
 ```
 
 当前项目已实现从“普通聊天 Demo”到“AI 文档解析与 RAG 问答系统原型”的基础升级。
 
-前端支持单文档上传、摘要、问答、参考片段展示、学习笔记生成、行动项提取、复制和 Markdown 报告导出。
+前端支持单文档上传、摘要、问答、参考片段展示、学习笔记生成、行动项提取、复制、Markdown 报告导出、文档列表展示、当前文档详情展示、后端健康状态和 OCR 状态展示。
 
 后端支持文档解析、OCR 回退识别、文本分块、基础 RAG 检索、LLM 调用、Excel 分析、多文档对比、本地记忆、数据库持久化、文档状态管理、统一异常处理、结构化日志、pytest smoke tests 和 Docker Compose 本地容器化启动。
 
@@ -86,6 +86,8 @@ backend/llm_client.py::summarize_text_stream() 构造摘要 prompt
 调用阿里云百炼 qwen 模型
 ↓
 前端边生成边显示结构化摘要
+↓
+刷新文档列表并同步当前文档
 ```
 
 ---
@@ -206,7 +208,46 @@ ask_llm() 调用大模型生成回答
 
 ---
 
-### 5. 文档状态管理
+### 5. 前端文档工作台
+
+项目新增前端文档工作台展示能力，不再只停留在“上传 PDF 并显示摘要”的单一页面。
+
+当前前端工作台包含：
+
+| 区域 | 说明 |
+|---|---|
+| 系统状态栏 | 显示 Backend 健康状态和 OCR 可用状态 |
+| 文档列表 | 展示已上传文档的文件名、类型、状态、解析方式、字符数 |
+| 当前文档详情 | 点击文档后展示当前文档的 doc_id、状态、解析方式、字符数等信息 |
+| 摘要区域 | 展示当前上传或生成的结构化摘要 |
+| 文档问答区 | 围绕当前文档提问 |
+| RAG 参考片段展示 | 展示 `related_chunks`、`chunk_id`、`retrieval_method` 和 `score` |
+| 快捷分析 | 支持生成学习笔记和行动项 |
+
+状态标签规则：
+
+| 状态 | 颜色 |
+|---|---|
+| `ready` | 绿色 |
+| `parsing` / `parsed` / `summarizing` | 蓝色 |
+| `uploaded` | 灰色 |
+| `failed` | 红色 |
+| unknown | 灰色 |
+
+系统状态显示规则：
+
+| 状态项 | 说明 |
+|---|---|
+| Backend OK | 后端健康检查成功 |
+| Backend Error | 后端健康检查失败 |
+| OCR Available | OCR 服务可用 |
+| OCR Unavailable | OCR 服务不可用或请求失败 |
+
+前端会在页面加载时获取系统状态和文档列表，并在上传、摘要生成后刷新文档列表，尽量同步当前选中文档。
+
+---
+
+### 6. 文档状态管理
 
 项目引入文档状态字段，用于追踪文档从上传、解析、摘要到可问答的处理过程。
 
@@ -237,7 +278,7 @@ GET /documents/{doc_id}/status
 
 ---
 
-### 6. 数据库持久化
+### 7. 数据库持久化
 
 项目引入 SQLAlchemy 管理文档元数据、处理状态和问答记录，默认使用 SQLite。
 
@@ -258,7 +299,7 @@ GET /documents/{doc_id}/status
 
 ---
 
-### 7. 学习笔记与行动项生成
+### 8. 学习笔记与行动项生成
 
 前端提供两个快捷分析按钮：
 
@@ -271,7 +312,7 @@ GET /documents/{doc_id}/status
 
 ---
 
-### 8. 复制与 Markdown 报告导出
+### 9. 复制与 Markdown 报告导出
 
 前端支持：
 
@@ -293,7 +334,7 @@ GET /documents/{doc_id}/status
 
 ---
 
-### 9. Excel 分析与图表生成
+### 10. Excel 分析与图表生成
 
 上传 Excel 文件后，后端可以分析表格结构、统计数值字段，并生成柱状图 / 折线图。
 
@@ -308,7 +349,7 @@ backend/chart_generator.py
 
 ---
 
-### 10. 本地记忆与报告保存
+### 11. 本地记忆与报告保存
 
 项目包含简单的本地记忆系统和 Markdown 报告保存能力：
 
@@ -360,7 +401,7 @@ backend/chart_generator.py
 | ReadableStream | 实现流式摘要显示 |
 | Nginx | Docker 环境下托管前端静态资源 |
 
-当前前端主要使用 `DocumentPanel.vue` 展示文档上传、结构化摘要、文档问答、参考片段、复制和导出功能。`ChatPanel.vue` 为历史遗留或后续扩展组件，当前未作为主页面入口。
+当前前端主要使用 `DocumentPanel.vue` 展示文档上传、结构化摘要、文档列表、当前文档详情、文档问答、参考片段、复制和导出功能。`ChatPanel.vue` 为历史遗留或后续扩展组件，当前未作为主页面入口。
 
 ---
 
@@ -648,7 +689,75 @@ fallback_keyword
 
 ---
 
-### 6. pytest Smoke Tests
+### 6. 前端文档工作台架构
+
+项目新增前端文档工作台，用于把后端文档状态、RAG 检索和 OCR 能力可视化。
+
+#### 页面加载流程
+
+```text
+进入页面
+↓
+onMounted()
+↓
+并行或依次请求系统状态
+  ├── GET /health
+  └── GET /ocr/status
+↓
+请求文档列表
+  └── GET /documents
+↓
+展示文档列表与系统状态
+```
+
+#### 文档选择流程
+
+```text
+点击文档列表中的某一行
+↓
+设置当前选中文档 doc_id
+↓
+请求 GET /documents/{doc_id}/status
+↓
+展示当前文档详情
+```
+
+#### 摘要生成后的同步流程
+
+```text
+上传并生成摘要成功
+↓
+后端返回 doc_id、filename、char_count 等信息
+↓
+前端刷新文档列表
+↓
+根据返回 doc_id 同步当前选中文档
+↓
+更新当前文档详情
+```
+
+#### 问答展示增强
+
+问答结果下方展示 `related_chunks`：
+
+| 字段 | 说明 |
+|---|---|
+| `chunk_id` | 文档片段编号 |
+| `text` | 参考片段文本，前端截取前 100 字展示 |
+| `retrieval_method` | 检索方式，如 embedding、fallback_keyword、keyword、unknown |
+| `score` | 检索得分，缺失时显示 `-` |
+
+#### 当前设计边界
+
+1. 当前前端能恢复历史文档列表和文档状态。
+2. 当前前端暂未完整恢复历史摘要内容。
+3. 当前前端暂未通过接口恢复历史问答记录。
+4. 当前问答历史主要保存在当前页面会话状态中，刷新页面后不会完整保留。
+5. 后续可新增问答历史查询接口和摘要结果持久化能力。
+
+---
+
+### 7. pytest Smoke Tests
 
 项目新增后端 smoke tests，用于验证核心 API、数据库写入和 RAG 主链路，避免后续数据库、RAG、状态管理等改造时破坏主流程。
 
@@ -687,7 +796,7 @@ python -m pytest -q tests/
 
 ---
 
-### 7. Docker Compose 本地部署
+### 8. Docker Compose 本地部署
 
 项目支持 Docker / docker-compose 本地一键启动，用于降低项目复现成本。
 
@@ -741,15 +850,17 @@ Docker Compose 将以下目录挂载到宿主机：
 
 ---
 
-### 8. 后续工程化计划
+### 9. 后续工程化计划
 
 后续工程化方向包括：
 
 1. 将当前 hash embedding 替换为真实语义 embedding。
 2. 将本地 JSON 向量索引升级为 Chroma、FAISS、pgvector 或其他向量存储。
 3. 增加摘要接口和流式摘要接口的测试。
-4. 根据项目规模决定是否引入 Celery / Redis 处理长耗时异步任务。
-5. 后续如有多用户需求，再引入用户系统和 JWT 鉴权。
+4. 增加历史问答记录查询与前端展示。
+5. 增加摘要结果持久化与历史摘要恢复。
+6. 根据项目规模决定是否引入 Celery / Redis 处理长耗时异步任务。
+7. 后续如有多用户需求，再引入用户系统和 JWT 鉴权。
 
 ---
 
@@ -805,10 +916,10 @@ docflow-agent/
 │   ├── nginx.conf               # Nginx 静态资源服务配置
 │   ├── src/
 │   │   ├── api/
-│   │   │   ├── document.js
+│   │   │   ├── document.js      # 文档、状态、OCR、问答相关 API 封装
 │   │   │   └── chat.js
 │   │   ├── components/
-│   │   │   ├── DocumentPanel.vue
+│   │   │   ├── DocumentPanel.vue # 文档工作台主组件
 │   │   │   └── ChatPanel.vue
 │   │   └── App.vue
 │   ├── package.json
@@ -1442,6 +1553,7 @@ GET /documents
 - 返回已上传文档列表
 - 当前同时兼容数据库记录和旧 JSON 文件索引
 - 返回字段包含 `status`、`parse_method`、`char_count`、`total_chunks` 等信息
+- 前端文档工作台会调用该接口展示历史文档列表
 
 ---
 
@@ -1556,7 +1668,16 @@ python -m pytest -q tests/
 python -m compileall backend tests
 ```
 
-### 3. Docker 启动验证
+### 3. 前端构建检查
+
+```powershell
+cd frontend
+npm run build
+```
+
+当前前端工作台改造要求 `npm run build` 无错误。若出现 chunk size warning，通常是前端依赖打包体积提示，不影响构建结果。
+
+### 4. Docker 启动验证
 
 ```powershell
 docker compose ps
@@ -1572,7 +1693,7 @@ http://127.0.0.1:8000/docs
 http://localhost:5173
 ```
 
-### 4. PowerShell 中文请求注意事项
+### 5. PowerShell 中文请求注意事项
 
 PowerShell 中直接手写中文 JSON 时，可能出现请求体编码问题。推荐使用 UTF-8 byte array 或 JSON 文件方式发送请求。
 
@@ -1628,17 +1749,19 @@ Invoke-RestMethod `
 7. 摘要接口返回 `doc_id`，支持摘要后继续围绕当前文档提问
 8. 支持基础 RAG 文档问答，上传后为 chunk 生成 embedding 并保存本地向量索引
 9. 问答时优先使用 top-k 向量检索构造上下文，异常时自动回退关键词检索
-10. 支持问答历史、复制摘要、复制回答和 Markdown 报告导出
-11. 支持一键生成学习笔记和行动项
-12. 引入统一异常处理体系，按文件处理、OCR、LLM 调用等模块划分业务错误码
-13. 引入 request_id 全链路追踪和 JSON 结构化日志，便于定位文档上传、解析、OCR、embedding、RAG、LLM 调用等关键流程
-14. 引入 SQLAlchemy + Alembic，管理文档元数据、处理状态和问答记录
-15. 设计 `uploaded / parsing / parsed / summarizing / ready / failed` 文档状态流转，并提供状态查询接口
-16. 新增 pytest smoke tests，覆盖健康检查、TXT 上传、状态查询、文档问答、向量索引生成和 fallback 等核心链路
-17. 使用 Docker / docker-compose 封装 FastAPI 后端、Vue 3 前端、Tesseract OCR 环境和 Alembic 数据库迁移流程，支持本地一键启动演示
-18. LLM 调用统一读取根目录 `.env` 配置，便于切换 OpenAI-compatible 服务商
-19. 支持 Excel 表格分析和图表生成
-20. 提供 PowerShell 脚本简化 Windows 本地启动与停止
+10. 前端实现文档工作台，支持文档列表、当前文档详情、状态标签、系统状态和 OCR 状态展示
+11. 前端展示 `related_chunks`、`retrieval_method` 和 `score`，使 RAG 检索过程可视化
+12. 支持问答历史、复制摘要、复制回答和 Markdown 报告导出
+13. 支持一键生成学习笔记和行动项
+14. 引入统一异常处理体系，按文件处理、OCR、LLM 调用等模块划分业务错误码
+15. 引入 request_id 全链路追踪和 JSON 结构化日志，便于定位文档上传、解析、OCR、embedding、RAG、LLM 调用等关键流程
+16. 引入 SQLAlchemy + Alembic，管理文档元数据、处理状态和问答记录
+17. 设计 `uploaded / parsing / parsed / summarizing / ready / failed` 文档状态流转，并提供状态查询接口
+18. 新增 pytest smoke tests，覆盖健康检查、TXT 上传、状态查询、文档问答、向量索引生成和 fallback 等核心链路
+19. 使用 Docker / docker-compose 封装 FastAPI 后端、Vue 3 前端、Tesseract OCR 环境和 Alembic 数据库迁移流程，支持本地一键启动演示
+20. LLM 调用统一读取根目录 `.env` 配置，便于切换 OpenAI-compatible 服务商
+21. 支持 Excel 表格分析和图表生成
+22. 提供 PowerShell 脚本简化 Windows 本地启动与停止
 
 ---
 
@@ -1648,14 +1771,16 @@ Invoke-RestMethod `
 2. `/api/documents/summarize` 和 `/api/documents/summarize/stream` 当前主要支持 TXT / PDF
 3. 当前基础 RAG 使用 hash embedding，语义表达能力弱于真实 embedding 模型
 4. 当前向量索引使用本地 JSON 文件，适合本地演示，不适合大规模文档和高并发检索
-5. Excel 分析与图表生成能力主要在后端，前端展示还可以继续完善
-6. Token 使用量统计尚未完整展示到前端
-7. `routers/` 和 `services/` 目录属于历史遗留 / 实验性结构，当前主运行链路仍是 `backend/main.py + 扁平模块`
-8. 当前数据库主要保存文档元数据、处理状态和问答记录，chunk、索引、向量索引和上传文件仍依赖本地文件存储
-9. 当前暂未实现用户系统、JWT 鉴权和多用户隔离
-10. 当前日志主要用于本地调试，尚未接入远程日志平台
-11. 当前 pytest 主要覆盖后端主链路 smoke tests，尚未覆盖 OCR、PDF、Excel、流式摘要和多文档对比等复杂场景
-12. 当前 Docker 配置主要用于本地演示，暂未包含生产级 HTTPS、反向代理、对象存储、远程数据库和日志平台
+5. 前端可以查看历史文档列表和文档状态，但暂未完整恢复历史摘要内容
+6. 后端已保存问答记录到 `qa_records` 表，但前端暂未提供历史问答记录查询与展示入口
+7. Excel 分析与图表生成能力主要在后端，前端展示还可以继续完善
+8. Token 使用量统计尚未完整展示到前端
+9. `routers/` 和 `services/` 目录属于历史遗留 / 实验性结构，当前主运行链路仍是 `backend/main.py + 扁平模块`
+10. 当前数据库主要保存文档元数据、处理状态和问答记录，chunk、索引、向量索引和上传文件仍依赖本地文件存储
+11. 当前暂未实现用户系统、JWT 鉴权和多用户隔离
+12. 当前日志主要用于本地调试，尚未接入远程日志平台
+13. 当前 pytest 主要覆盖后端主链路 smoke tests，尚未覆盖 OCR、PDF、Excel、流式摘要和多文档对比等复杂场景
+14. 当前 Docker 配置主要用于本地演示，暂未包含生产级 HTTPS、反向代理、对象存储、远程数据库和日志平台
 
 ---
 
@@ -1665,6 +1790,8 @@ Invoke-RestMethod `
 - 将本地 JSON 向量索引升级为 Chroma / FAISS / pgvector 等向量存储
 - 增加摘要接口和流式摘要接口测试
 - 增加 Token 使用量统计与前端展示
+- 增加历史问答记录查询接口与前端展示
+- 增加摘要结果持久化，支持刷新后恢复历史摘要
 - 完善前端文档问答交互体验
 - 增加多文档管理与多文档对比前端界面
 - 优化 OCR 识别结果清洗与页面级来源展示
@@ -1676,6 +1803,20 @@ Invoke-RestMethod `
 ---
 
 ## 十八、版本记录
+
+### v0.6.0
+
+- 新增前端文档工作台展示能力
+- 新增系统状态栏，展示 Backend 健康状态和 OCR 可用状态
+- 新增文档列表面板，调用 `GET /documents` 展示历史文档、文件类型、状态、解析方式和字符数
+- 新增当前文档详情区域，点击文档后调用 `GET /documents/{doc_id}/status` 展示文档状态信息
+- 新增状态颜色标签，区分 `ready`、`parsed`、`summarizing`、`uploaded`、`failed` 等状态
+- 上传或摘要生成成功后自动刷新文档列表，并同步当前选中文档
+- 问答结果下方增强展示 `related_chunks`、`chunk_id`、`retrieval_method` 和 `score`
+- 系统状态请求和文档列表请求加入 loading / error fallback，不影响原上传、摘要、问答功能
+- 未新增后端 API，未修改后端 Python 文件，保持原有接口结构不变
+
+---
 
 ### v0.5.0
 
