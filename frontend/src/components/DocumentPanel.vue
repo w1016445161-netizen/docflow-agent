@@ -4,6 +4,14 @@
       <h1>DocFlow Agent</h1>
       <p class="subtitle">上传 TXT / PDF 文档，自动解析并生成结构化摘要</p>
 
+      <div class="system-status">
+        <span class="status-dot" :class="healthStatus === 'ok' ? 'dot-green' : 'dot-red'"></span>
+        <span class="status-label">{{ healthStatus === 'ok' ? 'Backend OK' : 'Backend Error' }}</span>
+        <span class="status-dot" :class="ocrStatus === 'available' ? 'dot-green' : 'dot-gray'"></span>
+        <span class="status-label">{{ ocrStatus === 'available' ? 'OCR Available' : 'OCR Unavailable' }}</span>
+        <button class="status-refresh" @click="refreshSystemStatus" :disabled="systemStatusLoading">↻</button>
+      </div>
+
       <div class="upload-box">
         <input type="file" accept=".txt,.pdf" @change="handleFileChange" />
 
@@ -60,6 +68,53 @@
 
       <div v-if="error" class="error-box">
         {{ error }}
+      </div>
+
+      <div class="doc-list-panel">
+        <h2>文档列表</h2>
+        <div v-if="docListLoading" class="doc-list-status">加载中...</div>
+        <div v-else-if="docListError" class="doc-list-status error-text">{{ docListError }}</div>
+        <div v-else-if="!documents.length" class="doc-list-status">暂无文档</div>
+        <div v-else class="doc-list-table-wrap">
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>文件名</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>解析方式</th>
+                <th>字符数</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="doc in documents"
+                :key="doc.doc_id"
+                :class="{ 'row-selected': selectedDocId === doc.doc_id }"
+                @click="selectDocument(doc.doc_id)"
+              >
+                <td>{{ doc.filename }}</td>
+                <td>{{ doc.file_type }}</td>
+                <td><span class="status-tag" :class="statusTagClass(doc.status)">{{ doc.status }}</span></td>
+                <td>{{ doc.parse_method }}</td>
+                <td>{{ doc.char_count }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="selectedDocDetail" class="doc-detail">
+          <h3>当前文档</h3>
+          <div v-if="docDetailLoading" class="doc-list-status">加载详情中...</div>
+          <div v-else class="detail-grid">
+            <span><strong>文件名：</strong>{{ selectedDocDetail.filename }}</span>
+            <span><strong>doc_id：</strong>{{ selectedDocDetail.doc_id }}</span>
+            <span><strong>状态：</strong><span class="status-tag" :class="statusTagClass(selectedDocDetail.status)">{{ selectedDocDetail.status }}</span></span>
+            <span><strong>解析方式：</strong>{{ selectedDocDetail.parse_method }}</span>
+            <span><strong>字符数：</strong>{{ selectedDocDetail.char_count }}</span>
+            <span v-if="selectedDocDetail.error_message"><strong>错误信息：</strong><span class="error-text">{{ selectedDocDetail.error_message }}</span></span>
+          </div>
+        </div>
       </div>
 
       <div v-if="result" class="result-box">
@@ -180,11 +235,12 @@
             >
               <div class="chunk-meta">
                 <span class="chunk-id">片段 #{{ chunk.chunk_id }}</span>
-                <span class="chunk-score">相关度: {{ chunk.score }}</span>
+                <span class="chunk-method">{{ chunk.retrieval_method || 'unknown' }}</span>
+                <span class="chunk-score">相关度: {{ chunk.score != null ? chunk.score : '-' }}</span>
               </div>
               <pre
-                >{{ chunk.text.substring(0, 300)
-                }}{{ chunk.text.length > 300 ? "..." : "" }}</pre
+                >{{ chunk.text.substring(0, 100)
+                }}{{ chunk.text.length > 100 ? "..." : "" }}</pre
               >
             </div>
           </details>
@@ -210,11 +266,12 @@
               >
                 <div class="chunk-meta">
                   <span class="chunk-id">片段 #{{ chunk.chunk_id }}</span>
-                  <span class="chunk-score">相关度: {{ chunk.score }}</span>
+                  <span class="chunk-method">{{ chunk.retrieval_method || 'unknown' }}</span>
+                  <span class="chunk-score">相关度: {{ chunk.score != null ? chunk.score : '-' }}</span>
                 </div>
                 <pre
-                  >{{ chunk.text.substring(0, 300)
-                  }}{{ chunk.text.length > 300 ? "..." : "" }}</pre
+                  >{{ chunk.text.substring(0, 100)
+                  }}{{ chunk.text.length > 100 ? "..." : "" }}</pre
                 >
               </div>
             </details>
@@ -228,7 +285,8 @@
 <script setup>
 import { computed, ref } from "vue";
 import MarkdownIt from "markdown-it";
-import { summarizeDocumentStream, askQuestion } from "../api/document";
+import { summarizeDocumentStream, askQuestion, getDocuments, getDocumentStatus, getHealth, getOcrStatus } from "../api/document";
+import { onMounted } from "vue";
 
 const md = new MarkdownIt({
   html: false,
@@ -251,6 +309,17 @@ const qaHistory = ref([]);
 const copiedSummary = ref(false);
 const copiedAnswer = ref(false);
 
+const healthStatus = ref("unknown");
+const ocrStatus = ref("unknown");
+const systemStatusLoading = ref(false);
+
+const documents = ref([]);
+const docListLoading = ref(false);
+const docListError = ref("");
+const selectedDocId = ref(null);
+const selectedDocDetail = ref(null);
+const docDetailLoading = ref(false);
+
 const renderedSummary = computed(() => {
   if (!result.value) {
     return "";
@@ -265,6 +334,68 @@ const renderedAnswer = computed(() => {
   }
 
   return md.render(qaResult.value.answer || "");
+});
+
+function statusTagClass(status) {
+  const map = {
+    ready: "tag-green",
+    parsing: "tag-blue",
+    parsed: "tag-blue",
+    summarizing: "tag-blue",
+    uploaded: "tag-gray",
+    failed: "tag-red",
+  };
+  return map[status] || "tag-gray";
+}
+
+async function loadDocuments() {
+  docListLoading.value = true;
+  docListError.value = "";
+  try {
+    const data = await getDocuments();
+    documents.value = data.documents || [];
+  } catch (err) {
+    docListError.value = err.message || "文档列表加载失败";
+  } finally {
+    docListLoading.value = false;
+  }
+}
+
+async function selectDocument(docId) {
+  selectedDocId.value = docId;
+  docDetailLoading.value = true;
+  selectedDocDetail.value = null;
+  try {
+    selectedDocDetail.value = await getDocumentStatus(docId);
+  } catch {
+    selectedDocDetail.value = null;
+  } finally {
+    docDetailLoading.value = false;
+  }
+}
+
+async function loadSystemStatus() {
+  systemStatusLoading.value = true;
+  const [healthOk, ocrResult] = await Promise.allSettled([
+    getHealth(),
+    getOcrStatus(),
+  ]);
+  healthStatus.value = healthOk.status === "fulfilled" ? "ok" : "error";
+  if (ocrResult.status === "fulfilled") {
+    ocrStatus.value = ocrResult.value.available ? "available" : "unavailable";
+  } else {
+    ocrStatus.value = "unavailable";
+  }
+  systemStatusLoading.value = false;
+}
+
+async function refreshSystemStatus() {
+  await loadSystemStatus();
+}
+
+onMounted(() => {
+  loadDocuments();
+  loadSystemStatus();
 });
 
 function handleFileChange(event) {
@@ -332,6 +463,10 @@ async function handleSummarize() {
   } finally {
     loading.value = false;
   }
+  if (docId.value) {
+    await loadDocuments();
+    await selectDocument(docId.value);
+  }
 }
 
 async function handleRegenerateSummary() {
@@ -366,6 +501,10 @@ async function handleRegenerateSummary() {
     result.value = null;
   } finally {
     loading.value = false;
+  }
+  if (docId.value) {
+    await loadDocuments();
+    await selectDocument(docId.value);
   }
 }
 
@@ -941,5 +1080,176 @@ button:disabled {
   color: #2563eb;
   font-weight: 700;
   box-shadow: 0 0 0 1px #2563eb;
+}
+
+.system-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.dot-green {
+  background: #16a34a;
+}
+
+.dot-red {
+  background: #dc2626;
+}
+
+.dot-gray {
+  background: #9ca3af;
+}
+
+.status-label {
+  margin-right: 12px;
+}
+
+.status-refresh {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #6b7280;
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 22px;
+}
+
+.status-refresh:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.doc-list-panel {
+  margin-top: 28px;
+  padding: 20px;
+  border-radius: 14px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+.doc-list-panel h2 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  color: #111827;
+}
+
+.doc-list-panel h3 {
+  margin: 16px 0 10px 0;
+  font-size: 16px;
+  color: #111827;
+}
+
+.doc-list-status {
+  font-size: 14px;
+  color: #6b7280;
+  padding: 10px 0;
+}
+
+.error-text {
+  color: #b91c1c;
+}
+
+.doc-list-table-wrap {
+  overflow-x: auto;
+}
+
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.doc-table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 2px solid #d1d5db;
+  color: #4b5563;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.doc-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  color: #374151;
+}
+
+.doc-table tbody tr {
+  cursor: pointer;
+}
+
+.doc-table tbody tr:hover {
+  background: #eff6ff;
+}
+
+.row-selected {
+  background: #eff6ff;
+}
+
+.status-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tag-green {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.tag-blue {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.tag-gray {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.tag-red {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.doc-detail {
+  margin-top: 16px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.detail-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.chunk-method {
+  background: #f3e8ff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #9333ea;
+  font-size: 11px;
+  font-weight: 600;
 }
 </style>

@@ -86,6 +86,50 @@ export async function summarizeDocumentStream(
   }
 }
 
+export async function getDocuments() {
+  const response = await fetch(`${API_BASE_URL}/documents`);
+  if (!response.ok) {
+    let message = `请求失败：${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData.detail) message = errorData.detail;
+    } catch {
+      const errorText = await response.text();
+      message = errorText || message;
+    }
+    throw new Error(message);
+  }
+  return await response.json();
+}
+
+export async function getDocumentStatus(docId) {
+  const response = await fetch(`${API_BASE_URL}/documents/${docId}/status`);
+  if (!response.ok) {
+    let message = `请求失败：${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData.detail) message = errorData.detail;
+    } catch {
+      const errorText = await response.text();
+      message = errorText || message;
+    }
+    throw new Error(message);
+  }
+  return await response.json();
+}
+
+export async function getHealth() {
+  const response = await fetch(`${API_BASE_URL}/health`);
+  if (!response.ok) throw new Error(`Health check failed: ${response.status}`);
+  return await response.json();
+}
+
+export async function getOcrStatus() {
+  const response = await fetch(`${API_BASE_URL}/ocr/status`);
+  if (!response.ok) throw new Error(`OCR status check failed: ${response.status}`);
+  return await response.json();
+}
+
 export async function askQuestion(docId, question) {
   const response = await fetch(`${API_BASE_URL}/ask`, {
     method: "POST",
