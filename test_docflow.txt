@@ -1,0 +1,9 @@
+﻿这是一个 DocFlow Agent 测试文档。
+
+本文档用于验证：
+1. 文档上传是否成功；
+2. documents 表是否写入记录；
+3. 文档状态查询接口是否可用；
+4. 文档问答后 qa_records 表是否写入记录。
+
+DocFlow Agent 当前正在加入 SQLAlchemy、Alembic、文档状态管理、结构化日志等后端工程化能力。

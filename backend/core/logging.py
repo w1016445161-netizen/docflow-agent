@@ -53,19 +53,13 @@ class StructuredJsonFormatter(logging.Formatter):
 
     将每行日志格式化为包含所有结构化字段的 JSON 对象，
     缺省字段输出 null，确保日志收集系统（如 Loki、ELK）的字段一致性。
+
+    设计决策：固定字段由 formatter 硬编码输出；extra_fields
+    通过 log_event 在 LogRecord 上注册 _extra_keys 追踪。
+    不使用 dir(record) 扫描，避免意外泄露 LogRecord 内部属性。
     """
 
-    # LogRecord 上的标准属性，无需作为额外字段输出
-    _SKIP_ATTRS = frozenset({
-        "name", "msg", "args", "levelname", "levelno", "pathname",
-        "filename", "module", "lineno", "funcName", "created",
-        "msecs", "relativeCreated", "thread", "threadName",
-        "process", "processName", "message", "exc_info", "exc_text",
-        "stack_info", "taskName", "getMessage",
-    })
-
     def format(self, record: logging.LogRecord) -> str:
-        # 基础字段
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
@@ -73,24 +67,17 @@ class StructuredJsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        # 结构化字段：先从 record 属性读取（由 log_event 的 extra 传入），
-        # request_id 兜底从 contextvars 读取（由中间件设置）
         for field in _STRUCTURED_FIELDS:
             entry[field] = getattr(record, field, None)
 
         entry["request_id"] = getattr(record, "request_id", None) or get_request_id() or None
 
-        # extra_fields 中的额外字段（如 parse_method、text_length 等）
-        # 仅包含非 callable 的值类型属性，排除方法和内部属性
-        for key in dir(record):
-            if key.startswith("_") or key in self._SKIP_ATTRS:
-                continue
-            if key in entry:
-                continue
-            val = getattr(record, key, None)
-            if callable(val):
-                continue
-            entry[key] = val
+        # 仅输出 log_event 明确传递的额外字段，不扫描 LogRecord 所有属性
+        extra_keys = getattr(record, "_extra_keys", None)
+        if extra_keys:
+            for key in extra_keys:
+                if key not in entry:
+                    entry[key] = getattr(record, key, None)
 
         return json.dumps(entry, ensure_ascii=False, default=str)
 
@@ -152,7 +139,10 @@ def log_event(
         "file_id": file_id,
         "error_detail": error_detail,
     }
+    extra["_extra_keys"] = list(extra.keys())
     if extra_fields:
         extra.update(extra_fields)
+        # 将 extra_fields 中的键也加入追踪列表
+        extra["_extra_keys"].extend(extra_fields.keys())
 
     logger.log(level, message, extra=extra, exc_info=exc_info)

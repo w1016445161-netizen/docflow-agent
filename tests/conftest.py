@@ -55,12 +55,15 @@ def _storage_dirs(monkeypatch, tmp_path):
     upload_dir = tmp_path / "uploads"
     index_dir = tmp_path / "index"
     output_dir = tmp_path / "outputs"
+    vector_index_dir = tmp_path / "vector_index"
     upload_dir.mkdir()
     index_dir.mkdir()
     output_dir.mkdir()
+    vector_index_dir.mkdir()
     monkeypatch.setattr("backend.main.UPLOAD_DIR", upload_dir)
     monkeypatch.setattr("backend.main.INDEX_DIR", index_dir)
     monkeypatch.setattr("backend.main.OUTPUT_DIR", output_dir)
+    monkeypatch.setattr("backend.vector_store.VECTOR_INDEX_DIR", vector_index_dir)
 
 
 @pytest.fixture

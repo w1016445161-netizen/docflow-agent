@@ -14,31 +14,37 @@ from pydantic import BaseModel
 
 from backend.document_parser import parse_document
 from backend.chunker import chunk_text
-from backend.retriever import retrieve_chunks
+from backend.retriever import retrieve_chunks_rag
 from backend.llm_client import ask_llm, summarize_text, summarize_text_stream
 from backend.report import save_markdown_report
 from backend.table_analyzer import analyze_excel
 from backend.chart_generator import generate_excel_charts
 from backend.memory import load_memory, update_memory, add_history, memory_to_text
-from backend.multi_doc import list_documents, build_multi_doc_context
+from backend.multi_doc import build_multi_doc_context
 from backend.ocr_parser import check_ocr_available
 
 from backend.core.response import ApiResponse
-from backend.core.exceptions import AppException
+from backend.core.exceptions import AppException, DocumentNotFoundError
 from backend.core.logging import (
     setup_logging,
     set_request_id,
     reset_request_id,
     log_event,
 )
+from backend.database import init_db, SessionLocal
+from backend.models import Document, DocumentStatus, QARecord
+from backend.schemas import DocumentStatusOut
+from backend.embedding_service import embed_texts
+from backend.vector_store import save_vectors
 
 _logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理：启动时初始化日志系统，关闭时清理。"""
+    """应用生命周期管理：启动时初始化日志+数据库，关闭时清理。"""
     setup_logging()
+    init_db()
     yield
 
 
@@ -79,6 +85,18 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
 
 
+def _get_index_value(doc_id: str, key: str, default=None):
+    """从文件存储的索引 JSON 中读取指定字段（过渡期兼容）。"""
+    index_path = INDEX_DIR / f"{doc_id}.json"
+    if index_path.exists():
+        try:
+            data = json.loads(index_path.read_text(encoding="utf-8"))
+            return data.get(key, default)
+        except (json.JSONDecodeError, OSError):
+            return default
+    return default
+
+
 # ── 请求入口中间件 ──
 
 
@@ -92,7 +110,6 @@ async def request_context_middleware(request: Request, call_next):
     request_id = str(uuid.uuid4())
     token = set_request_id(request_id)
     request.state.request_id = request_id
-    start_time = time.time()
 
     try:
         response = await call_next(request)
@@ -204,45 +221,93 @@ async def summarize_document(
     with saved_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    t1 = time.time()
+    # Session 1：上传 → 解析 → 分块 → 写入索引 → PARSED
+    file_type = suffix.lstrip(".")
+    db = SessionLocal()
     try:
-        text = parse_document(str(saved_path))
+        db_doc = Document(
+            id=doc_id, filename=original_filename, file_type=file_type,
+            storage_path=str(saved_path), parse_method="unknown",
+            status=DocumentStatus.UPLOADED.value,
+        )
+        db.add(db_doc)
+        db.commit()
+
+        db_doc.status = DocumentStatus.PARSING.value
+        db.commit()
+
+        try:
+            text, parse_method = parse_document(str(saved_path))
+        except Exception as e:
+            db_doc.status = DocumentStatus.FAILED.value
+            db_doc.error_message = str(e)
+            db.commit()
+            raise HTTPException(status_code=400, detail=f"文档解析失败：{e}")
+
+        t2 = time.time()
+        log_event(_logger, logging.INFO, "文档解析完成", operation="parse",
+                  duration_ms=(t2 - t0) * 1000, file_id=doc_id)
+
+        db_doc.parse_method = parse_method
+        db_doc.char_count = len(text)
+
+        mode_cfg = _SUMMARY_MODES.get(summary_mode, _SUMMARY_MODES["fast"])
+        char_count = len(text)
+        max_chars = mode_cfg["max_chars"]
+        limited_text = text[:max_chars]
+        is_truncated = char_count > max_chars
+
+        chunks = chunk_text(text)
+
+        index_data = {
+            "doc_id": doc_id, "filename": original_filename, "file_path": str(saved_path),
+            "file_type": suffix, "total_chars": char_count, "total_chunks": len(chunks),
+            "chunks": chunks,
+        }
+
+        index_path = INDEX_DIR / f"{doc_id}.json"
+        index_path.write_text(
+            json.dumps(index_data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        # 索引写入成功后才标记 PARSED
+        db_doc.status = DocumentStatus.PARSED.value
+        db.commit()
+    except HTTPException:
+        raise
     except Exception as e:
+        db_doc.status = DocumentStatus.FAILED.value
+        db_doc.error_message = str(e)
+        db.commit()
         raise HTTPException(status_code=400, detail=f"文档解析失败：{e}")
-    t2 = time.time()
-    log_event(_logger, logging.INFO, "文档解析完成", operation="parse",
-              duration_ms=(t2 - t1) * 1000, file_id=doc_id)
+    finally:
+        db.close()
 
-    mode_cfg = _SUMMARY_MODES.get(summary_mode, _SUMMARY_MODES["fast"])
-    char_count = len(text)
-    max_chars = mode_cfg["max_chars"]
-    limited_text = text[:max_chars]
-    is_truncated = char_count > max_chars
+    # Session 2：LLM 摘要 → READY / FAILED
+    db = SessionLocal()
+    try:
+        d = db.query(Document).filter(Document.id == doc_id).first()
+        d.status = DocumentStatus.SUMMARIZING.value
+        db.commit()
 
-    chunks = chunk_text(text)
+        try:
+            summary = summarize_text(
+                original_filename, limited_text, max_tokens=mode_cfg["max_tokens"]
+            )
+        except Exception:
+            d.status = DocumentStatus.FAILED.value
+            d.error_message = "LLM 摘要失败"
+            db.commit()
+            raise
 
-    index_data = {
-        "doc_id": doc_id,
-        "filename": original_filename,
-        "file_path": str(saved_path),
-        "file_type": suffix,
-        "total_chars": char_count,
-        "total_chunks": len(chunks),
-        "chunks": chunks,
-    }
+        d.status = DocumentStatus.READY.value
+        db.commit()
+    finally:
+        db.close()
 
-    index_path = INDEX_DIR / f"{doc_id}.json"
-    index_path.write_text(
-        json.dumps(index_data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-    t3 = time.time()
-    summary = summarize_text(
-        original_filename, limited_text, max_tokens=mode_cfg["max_tokens"]
-    )
     t4 = time.time()
     log_event(_logger, logging.INFO, "LLM 摘要完成", operation="llm",
-              duration_ms=(t4 - t3) * 1000, file_id=doc_id)
+              duration_ms=(t4 - t2) * 1000, file_id=doc_id)
 
     preview = text[:500]
     file_type = suffix.lstrip(".")
@@ -281,10 +346,25 @@ async def summarize_document_stream(
     with saved_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    parse_method = "unknown"
     try:
-        text = parse_document(str(saved_path))
+        text, parse_method = parse_document(str(saved_path))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"文档解析失败：{e}")
+
+    # 创建文档记录，初始状态为 parsed（解析已在生成器外完成）
+    file_type = suffix.lstrip(".")
+    db = SessionLocal()
+    try:
+        db_doc = Document(
+            id=doc_id, filename=original_filename, file_type=file_type,
+            storage_path=str(saved_path), parse_method=parse_method,
+            char_count=len(text), status=DocumentStatus.PARSED.value,
+        )
+        db.add(db_doc)
+        db.commit()
+    finally:
+        db.close()
 
     mode_cfg = _SUMMARY_MODES.get(summary_mode, _SUMMARY_MODES["fast"])
     char_count = len(text)
@@ -310,10 +390,16 @@ async def summarize_document_stream(
     )
 
     preview = text[:500]
-    file_type = suffix.lstrip(".")
 
     def generate():
+        db_gen = SessionLocal()
         try:
+            # 更新状态为 summarizing
+            d = db_gen.query(Document).filter(Document.id == doc_id).first()
+            if d:
+                d.status = DocumentStatus.SUMMARIZING.value
+                db_gen.commit()
+
             yield json.dumps(
                 {"type": "status", "data": "文档解析完成，正在生成摘要..."},
                 ensure_ascii=False,
@@ -342,11 +428,25 @@ async def summarize_document_stream(
                     {"type": "delta", "data": delta}, ensure_ascii=False
                 ) + "\n"
 
+            # 摘要完成，更新状态为 ready
+            d = db_gen.query(Document).filter(Document.id == doc_id).first()
+            if d:
+                d.status = DocumentStatus.READY.value
+                db_gen.commit()
+
             yield json.dumps({"type": "done", "data": ""}, ensure_ascii=False) + "\n"
         except Exception as e:
+            # 失败时更新状态为 failed
+            d = db_gen.query(Document).filter(Document.id == doc_id).first()
+            if d:
+                d.status = DocumentStatus.FAILED.value
+                d.error_message = str(e)
+                db_gen.commit()
             yield json.dumps(
                 {"type": "error", "data": str(e)}, ensure_ascii=False
             ) + "\n"
+        finally:
+            db_gen.close()
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
@@ -375,14 +475,69 @@ async def upload_document(file: UploadFile = File(...)):
     with saved_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # 创建文档元数据记录，晚于索引写入后设为 PARSED，避免中间步骤失败时状态残留
+    file_type = suffix.lstrip(".")
+    db = SessionLocal()
     try:
-        text = parse_document(str(saved_path))
-    except Exception as e:
-        log_event(_logger, logging.ERROR, f"文档解析失败：{original_filename}",
-                  operation="parse", file_id=doc_id, error_detail=str(e))
-        return {"error": "文档解析失败", "detail": str(e)}
+        db_doc = Document(
+            id=doc_id,
+            filename=original_filename,
+            file_type=file_type,
+            storage_path=str(saved_path),
+            parse_method="unknown",
+            status=DocumentStatus.UPLOADED.value,
+        )
+        db.add(db_doc)
+        db.commit()
 
-    chunks = chunk_text(text)
+        db_doc.status = DocumentStatus.PARSING.value
+        db.commit()
+
+        try:
+            text, parse_method = parse_document(str(saved_path))
+        except Exception as e:
+            db_doc.status = DocumentStatus.FAILED.value
+            db_doc.error_message = str(e)
+            db.commit()
+            log_event(_logger, logging.ERROR, f"文档解析失败：{original_filename}",
+                      operation="parse", file_id=doc_id, error_detail=str(e))
+            return {"error": "文档解析失败", "detail": str(e)}
+
+        db_doc.parse_method = parse_method
+        db_doc.char_count = len(text)
+
+        chunks = chunk_text(text)
+
+        index_data = {
+            "doc_id": doc_id,
+            "filename": original_filename,
+            "file_path": str(saved_path),
+            "file_type": suffix,
+            "total_chars": len(text),
+            "total_chunks": len(chunks),
+            "chunks": chunks,
+        }
+
+        index_path = INDEX_DIR / f"{doc_id}.json"
+        index_path.write_text(
+            json.dumps(index_data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        # 索引文件写入成功后才标记解析完成
+        db_doc.status = DocumentStatus.PARSED.value
+        db.commit()
+    except Exception as e:
+        db_doc.status = DocumentStatus.FAILED.value
+        db_doc.error_message = str(e)
+        db.commit()
+        log_event(_logger, logging.ERROR, f"文档处理失败：{original_filename}",
+                  operation="upload", file_id=doc_id, error_detail=str(e))
+        return {"error": "文档处理失败", "detail": str(e)}
+    finally:
+        db.close()
+
+    chart_paths = []
+    excel_analysis = None
 
     chart_paths = []
     excel_analysis = None
@@ -410,6 +565,32 @@ async def upload_document(file: UploadFile = File(...)):
     index_path.write_text(
         json.dumps(index_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+    # RAG: 生成向量 embeddings 并保存，失败不阻断上传
+    try:
+        t_emb = time.time()
+        chunk_texts = [c["text"] for c in chunks]
+        embeddings = embed_texts(chunk_texts)
+        save_vectors(doc_id, chunks, embeddings)
+        emb_duration = (time.time() - t_emb) * 1000
+        log_event(
+            _logger,
+            logging.INFO,
+            "向量索引已保存",
+            operation="embedding",
+            duration_ms=emb_duration,
+            file_id=doc_id,
+            extra_fields={"chunk_count": len(chunks), "embedding_dim": 256},
+        )
+    except Exception as e:
+        log_event(
+            _logger,
+            logging.WARNING,
+            f"向量索引生成失败，后续将使用关键词检索: {e}",
+            operation="embedding",
+            file_id=doc_id,
+            error_detail=str(e),
+        )
 
     add_history("upload", f"上传文档：{original_filename}")
 
@@ -444,7 +625,7 @@ def ask_document(request: AskRequest):
     index_data = json.loads(index_path.read_text(encoding="utf-8"))
     chunks = index_data["chunks"]
 
-    related_chunks = retrieve_chunks(request.question, chunks, top_k=4)
+    related_chunks = retrieve_chunks_rag(request.doc_id, request.question, chunks, top_k=4)
 
     memory_context = {"chunk_id": "memory", "text": memory_to_text(), "score": 0}
 
@@ -457,6 +638,24 @@ def ask_document(request: AskRequest):
     )
 
     add_history("ask", f"针对文档 {index_data['filename']} 提问：{request.question}")
+
+    # 保存问答记录到数据库
+    db = SessionLocal()
+    try:
+        qa = QARecord(
+            document_id=request.doc_id,
+            question=request.question,
+            answer=answer,
+        )
+        db.add(qa)
+        db.commit()
+        log_event(_logger, logging.INFO, "问答记录已保存",
+                  operation="query", file_id=request.doc_id)
+    except Exception as e:
+        log_event(_logger, logging.WARNING, f"问答记录保存失败: {e}",
+                  operation="query", file_id=request.doc_id, error_detail=str(e))
+    finally:
+        db.close()
 
     duration = (time.time() - t0) * 1000
     log_event(_logger, logging.INFO, f"问答完成：doc_id={request.doc_id}",
@@ -474,28 +673,102 @@ def ask_document(request: AskRequest):
 
 @app.get("/documents")
 def get_documents():
-    return {"documents": list_documents()}
+    # 从数据库查询文档列表，同时补充文件存储中的 total_chunks（过渡期兼容）
+    db = SessionLocal()
+    try:
+        docs = db.query(Document).order_by(Document.created_at.desc()).all()
+        document_list = [
+            {
+                "doc_id": d.id,
+                "filename": d.filename,
+                "file_type": d.file_type,
+                "status": d.status,
+                "parse_method": d.parse_method,
+                "char_count": d.char_count,
+                "total_chunks": _get_index_value(d.id, "total_chunks", 0),
+                "error_message": d.error_message,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+                "updated_at": d.updated_at.isoformat() if d.updated_at else None,
+            }
+            for d in docs
+        ]
+        return {"documents": document_list}
+    finally:
+        db.close()
 
 
 @app.get("/documents/{doc_id}")
 def get_document_info(doc_id: str):
-    index_path = INDEX_DIR / f"{doc_id}.json"
+    # 先从数据库查询元数据
+    db = SessionLocal()
+    try:
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+    finally:
+        db.close()
 
-    if not index_path.exists():
+    # 文件存储中的索引数据作为补充
+    index_path = INDEX_DIR / f"{doc_id}.json"
+    index_data = {}
+    if index_path.exists():
+        index_data = json.loads(index_path.read_text(encoding="utf-8"))
+
+    if not doc and not index_data:
         return {"error": "找不到该 doc_id 对应的文档索引"}
 
-    index_data = json.loads(index_path.read_text(encoding="utf-8"))
+    if doc:
+        return {
+            "doc_id": doc.id,
+            "filename": doc.filename,
+            "file_path": doc.storage_path,
+            "file_type": doc.file_type,
+            "status": doc.status,
+            "parse_method": doc.parse_method,
+            "char_count": doc.char_count,
+            "error_message": doc.error_message,
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
+            "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
+            "total_chunks": index_data.get("total_chunks", 0),
+            "excel_analysis": index_data.get("excel_analysis"),
+            "chart_paths": index_data.get("chart_paths", []),
+        }
 
+    # 仅存在于文件存储中的文档（旧数据）
     return {
         "doc_id": index_data["doc_id"],
         "filename": index_data["filename"],
         "file_path": index_data["file_path"],
         "file_type": index_data.get("file_type"),
-        "total_chars": index_data["total_chars"],
+        "status": "unknown",
+        "parse_method": "unknown",
+        "char_count": index_data["total_chars"],
         "total_chunks": index_data["total_chunks"],
         "excel_analysis": index_data.get("excel_analysis"),
         "chart_paths": index_data.get("chart_paths", []),
     }
+
+
+@app.get("/documents/{doc_id}/status")
+def get_document_status(doc_id: str):
+    """查询文档处理状态。"""
+    db = SessionLocal()
+    try:
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+    finally:
+        db.close()
+
+    if not doc:
+        raise DocumentNotFoundError(doc_id)
+
+    return DocumentStatusOut(
+        doc_id=doc.id,
+        filename=doc.filename,
+        status=doc.status,
+        parse_method=doc.parse_method,
+        char_count=doc.char_count,
+        error_message=doc.error_message,
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+    )
 
 
 @app.post("/excel/analyze")

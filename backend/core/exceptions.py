@@ -67,10 +67,3 @@ class LLMException(AppException):
 
     def __init__(self, message: str = "LLM 调用失败"):
         super().__init__(code=3001, message=message, http_status_code=502)
-
-
-class LLMConfigurationError(AppException):
-    """LLM 配置缺失或无效"""
-
-    def __init__(self, message: str = "LLM 配置错误"):
-        super().__init__(code=3002, message=message, http_status_code=500)

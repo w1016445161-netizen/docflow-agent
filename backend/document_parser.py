@@ -28,10 +28,11 @@ def parse_txt(file_path: str) -> str:
     return path.read_text(encoding="utf-8-sig", errors="ignore")
 
 
-def parse_pdf(file_path: str) -> str:
+def parse_pdf(file_path: str) -> tuple[str, str]:
     """解析 PDF 文件，自动判断使用文本提取还是 OCR。
 
-    日志记录解析方式（text/ocr）及耗时，方便后续分析解析效果。
+    返回 (text, parse_method)，parse_method 为 "text" 或 "ocr"。
+    日志记录解析方式及耗时，方便后续分析解析效果。
     """
     t0 = time.time()
     texts = []
@@ -56,7 +57,7 @@ def parse_pdf(file_path: str) -> str:
         log_event(_logger, logging.INFO, "PDF 文本提取完成",
                   operation="parse", duration_ms=duration,
                   extra_fields={"parse_method": "text", "text_length": len(text)})
-        return text
+        return text, "text"
 
     # 文本提取不足，判断是否满足 OCR 触发条件
     log_event(_logger, logging.INFO,
@@ -71,14 +72,14 @@ def parse_pdf(file_path: str) -> str:
         log_event(_logger, logging.INFO, "PDF OCR 解析完成",
                   operation="parse", duration_ms=duration,
                   extra_fields={"parse_method": "ocr", "text_length": len(ocr_text)})
-        return ocr_text
+        return ocr_text, "ocr"
 
     duration = (time.time() - t0) * 1000
     log_event(_logger, logging.WARNING, "PDF 解析完成但未提取到有效文本",
               operation="parse", duration_ms=duration, error_detail="text_length=0")
 
     if text:
-        return text
+        return text, "text"
 
     raise ValueError("没有从 PDF 中提取到有效文本。如果这是扫描型 PDF，请启用 OCR。")
 
@@ -95,20 +96,21 @@ def parse_docx(file_path: str) -> str:
     return "\n".join(paragraphs)
 
 
-def parse_document(file_path: str) -> str:
+def parse_document(file_path: str) -> tuple[str, str]:
+    """解析文档，返回 (text, parse_method)。"""
     suffix = Path(file_path).suffix.lower()
 
     if suffix in [".txt", ".md"]:
-        return parse_txt(file_path)
+        return parse_txt(file_path), "text"
 
     if suffix == ".pdf":
         return parse_pdf(file_path)
 
     if suffix == ".docx":
-        return parse_docx(file_path)
+        return parse_docx(file_path), "text"
 
     if suffix in [".xlsx", ".xls"]:
         analysis = analyze_excel(file_path)
-        return excel_analysis_to_text(analysis)
+        return excel_analysis_to_text(analysis), "excel"
 
     raise ValueError(f"暂不支持该文件类型：{suffix}")

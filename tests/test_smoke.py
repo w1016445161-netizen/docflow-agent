@@ -108,3 +108,79 @@ class TestErrorHandling:
         assert "不支持" in data["error"], f"错误消息应明确说明不支持: {data}"
         # 确保不是未捕获的 traceback
         assert "Traceback" not in str(data)
+
+
+class TestRAG:
+    def test_upload_creates_vector_index(self, client):
+        """上传 TXT 后，向量索引文件存在且包含 chunks 和 embeddings。"""
+        content = "RAG 测试文档内容。" * 50
+        resp = client.post(
+            "/upload", files={"file": ("rag_test.txt", content, "text/plain")}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "doc_id" in data
+        doc_id = data["doc_id"]
+
+        from backend.vector_store import load_vectors
+
+        vec_data = load_vectors(doc_id)
+        assert vec_data is not None, f"向量索引不存在: doc_id={doc_id}"
+        assert vec_data["doc_id"] == doc_id
+        assert "chunks" in vec_data
+        assert len(vec_data["chunks"]) > 0
+        for c in vec_data["chunks"]:
+            assert "chunk_id" in c
+            assert "text" in c
+            assert "embedding" in c
+            assert len(c["embedding"]) == 256
+
+    def test_ask_uses_rag_retrieval(self, client):
+        """上传 TXT 后提问，related_chunks 非空且检索方法为 embedding。"""
+        content = "这是一份关于机器学习的技术报告。" * 40
+        resp = client.post(
+            "/upload", files={"file": ("ml_report.txt", content, "text/plain")}
+        )
+        data = resp.json()
+        doc_id = data["doc_id"]
+
+        ask_resp = client.post(
+            "/ask", json={"doc_id": doc_id, "question": "机器学习是什么"}
+        )
+        assert ask_resp.status_code == 200
+        ask_data = ask_resp.json()
+
+        assert "related_chunks" in ask_data
+        assert len(ask_data["related_chunks"]) > 0
+        for chunk in ask_data["related_chunks"]:
+            assert "retrieval_method" in chunk
+            assert chunk["retrieval_method"] in ("embedding", "fallback_keyword")
+
+    def test_rag_fallback_when_vector_missing(self, client):
+        """上传 TXT 后删除向量索引，/ask 仍返回 answer 且使用 fallback。"""
+        content = "这是一份关于深度学习的文档。" * 40
+        resp = client.post(
+            "/upload", files={"file": ("dl_doc.txt", content, "text/plain")}
+        )
+        data = resp.json()
+        doc_id = data["doc_id"]
+
+        from backend.vector_store import VECTOR_INDEX_DIR
+
+        vec_path = VECTOR_INDEX_DIR / f"{doc_id}.json"
+        try:
+            vec_path.unlink()
+        except FileNotFoundError:
+            pass
+
+        ask_resp = client.post(
+            "/ask", json={"doc_id": doc_id, "question": "深度学习是什么"}
+        )
+        assert ask_resp.status_code == 200
+        ask_data = ask_resp.json()
+
+        assert "answer" in ask_data
+        assert "mock 回答" in ask_data["answer"]
+        assert len(ask_data["related_chunks"]) > 0
+        for chunk in ask_data["related_chunks"]:
+            assert chunk.get("retrieval_method") == "fallback_keyword"
