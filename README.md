@@ -1,10 +1,12 @@
 ﻿# DocFlow Agent
 
-DocFlow Agent 是一个基于 **FastAPI + Vue 3 + OpenAI-compatible LLM API** 构建的 AI 文档处理智能体项目。
+DocFlow Agent 是一个基于 **FastAPI + Vue 3 + OpenAI-compatible LLM API** 构建的 AI 文档解析与问答系统原型。
 
 项目面向学习资料、课程论文、实验报告、项目文档等场景，支持文档上传解析、结构化摘要生成、流式摘要输出、文档问答、参考片段展示、学习笔记生成、行动项提取、Markdown 报告导出、扫描型 PDF OCR 识别等功能。
 
-当前版本：**v0.3.2**
+当前版本：**v0.3.4**
+
+> 当前项目定位为个人学习与作品集展示项目，重点实践 AI 应用开发中的文档解析、OCR、大模型调用、流式输出、文档问答、数据库状态管理、统一异常处理、结构化日志和后端 smoke tests 等工程流程，不等同于生产级企业文档平台。
 
 ---
 
@@ -19,16 +21,16 @@ DocFlow Agent 的核心目标是将常见文档处理流程自动化：
 ↓
 必要时进行 OCR 识别
 ↓
+保存文档元数据与处理状态
+↓
 调用大模型生成摘要或回答问题
 ↓
-展示结构化结果
+展示结构化结果和参考片段
 ↓
 支持复制、问答、导出报告
 ```
 
-当前项目已实现从“普通聊天 Demo”到“文档智能体”的基础升级。前端已经支持单文档的上传、摘要、问答、参考片段展示、学习笔记生成和 Markdown 报告导出；后端同时保留多文档对比、Excel 分析、图表生成、本地记忆等基础能力。
-
-v0.3.2 版本开始补充后端工程化能力，新增统一异常处理体系、结构化日志系统和 request_id 全链路追踪，为后续数据库持久化、RAG 检索、测试与部署打基础。
+当前项目已实现从“普通聊天 Demo”到“AI 文档解析与问答系统原型”的基础升级。前端支持单文档上传、摘要、问答、参考片段展示、学习笔记生成和 Markdown 报告导出；后端支持文档解析、OCR 回退识别、关键词检索、LLM 调用、Excel 分析、多文档对比、本地记忆、数据库持久化、文档状态管理、统一异常处理、结构化日志和 pytest smoke tests。
 
 ---
 
@@ -61,7 +63,9 @@ backend/main.py 接收 /api/documents/summarize/stream 请求
 ↓
 backend/document_parser.py 解析文档文本
 ↓
-如果是扫描型 PDF 且普通文本提取过少，自动调用 OCR fallback
+如果是扫描型 PDF 且普通文本提取过少，自动调用 OCR 回退识别
+↓
+写入 documents 表并更新文档状态
 ↓
 backend/llm_client.py::summarize_text_stream() 构造摘要 prompt
 ↓
@@ -74,7 +78,7 @@ backend/llm_client.py::summarize_text_stream() 构造摘要 prompt
 
 ### 2. 流式摘要输出
 
-项目新增流式摘要能力。后端通过：
+项目支持流式摘要能力。后端通过：
 
 ```text
 POST /api/documents/summarize/stream
@@ -142,6 +146,8 @@ backend/llm_client.py::ask_llm() 构造问答 prompt
 调用阿里云百炼 qwen 模型
 ↓
 返回基于文档内容的回答和相关参考片段
+↓
+写入 qa_records 表
 ```
 
 前端支持：
@@ -151,9 +157,74 @@ backend/llm_client.py::ask_llm() 构造问答 prompt
 - 保存当前页面问答历史
 - 复制回答内容
 
+当前问答接口返回结构包含：
+
+```json
+{
+  "doc_id": "文档 ID",
+  "filename": "文件名",
+  "question": "用户原始问题",
+  "answer": "模型回答",
+  "related_chunks": [],
+  "report_path": "Markdown 报告路径"
+}
+```
+
 ---
 
-### 5. 学习笔记与行动项生成
+### 5. 文档状态管理
+
+项目引入文档状态字段，用于追踪文档从上传、解析、摘要到可问答的处理过程。
+
+状态流转：
+
+```text
+uploaded → parsing → parsed → summarizing → ready
+              │                    │
+              └──────→ failed      └──────→ failed
+```
+
+状态说明：
+
+| 状态 | 说明 |
+|---|---|
+| `uploaded` | 文件已上传并保存 |
+| `parsing` | 正在解析文本或进行 OCR |
+| `parsed` | 文本解析完成，chunk 索引已建立 |
+| `summarizing` | 正在调用大模型生成摘要 |
+| `ready` | 摘要或处理完成，可用于问答 |
+| `failed` | 处理失败，错误信息写入 `error_message` |
+
+状态查询接口：
+
+```text
+GET /documents/{doc_id}/status
+```
+
+---
+
+### 6. 数据库持久化
+
+项目引入 SQLAlchemy 管理文档元数据、处理状态和问答记录，默认使用 SQLite。
+
+当前数据库表：
+
+| 表名 | 说明 |
+|---|---|
+| `documents` | 保存文档 ID、文件名、类型、解析方式、字符数、状态、错误信息等元数据 |
+| `qa_records` | 保存文档问答记录，包括问题、回答和创建时间 |
+
+当前采用兼容迁移策略：
+
+1. 数据库保存文档元数据、处理状态和问答记录。
+2. 原始上传文件、chunk、本地索引仍保留在本地文件系统。
+3. 旧 JSON 文件索引保留可读。
+4. 新上传文档写入数据库。
+5. 后续可继续迁移 chunk 和索引到数据库或向量存储。
+
+---
+
+### 7. 学习笔记与行动项生成
 
 前端提供两个快捷分析按钮：
 
@@ -166,7 +237,7 @@ backend/llm_client.py::ask_llm() 构造问答 prompt
 
 ---
 
-### 6. 复制与 Markdown 报告导出
+### 8. 复制与 Markdown 报告导出
 
 前端支持：
 
@@ -186,11 +257,9 @@ backend/llm_client.py::ask_llm() 构造问答 prompt
 - 每个问答的参考片段
 - 生成时间
 
-该功能在前端本地完成，不需要额外后端接口。
-
 ---
 
-### 7. Excel 分析与图表生成
+### 9. Excel 分析与图表生成
 
 上传 Excel 文件后，后端可以分析表格结构、统计数值字段，并生成柱状图 / 折线图。
 
@@ -205,7 +274,7 @@ backend/chart_generator.py
 
 ---
 
-### 8. 本地记忆与报告保存
+### 10. 本地记忆与报告保存
 
 项目包含简单的本地记忆系统和 Markdown 报告保存能力：
 
@@ -227,10 +296,14 @@ backend/chart_generator.py
 | LLM SDK | openai | 使用 OpenAI-compatible API 调用模型 |
 | 模型服务 | 阿里云百炼 DashScope | 当前示例使用 qwen 模型 |
 | PDF 解析 | pypdf | 提取普通 PDF 文本 |
-| 扫描 PDF OCR | Tesseract + pytesseract + PyMuPDF + Pillow | OCR fallback |
+| 扫描 PDF OCR | Tesseract + pytesseract + PyMuPDF + Pillow | OCR 回退识别 |
 | Word 解析 | python-docx | 解析 `.docx` |
 | Excel 解析 | pandas + openpyxl | 表格读取与统计 |
 | 图表生成 | matplotlib | 生成柱状图 / 折线图 |
+| ORM | SQLAlchemy | 管理文档元数据、文档状态和问答记录 |
+| 数据库迁移 | Alembic | 管理数据库表结构迁移 |
+| 默认数据库 | SQLite | 本地零配置数据库 |
+| 测试框架 | pytest | 后端 smoke tests |
 | 日志系统 | Python logging + JSON formatter | 结构化日志记录 |
 | 异常处理 | FastAPI exception_handler | 统一处理业务异常、HTTP 异常和未捕获异常 |
 | 环境变量 | python-dotenv | 读取 `.env` 配置 |
@@ -312,13 +385,6 @@ global_exception_handler(Exception) 捕获
 返回统一响应 { code, message, data, request_id }
 ```
 
-#### 核心实现原则
-
-1. **单一入口**：整个应用只注册一个 `@app.exception_handler(Exception)`，避免异常处理逻辑分散。
-2. **深度判断**：通过 `isinstance(exc, AppException)` 识别业务异常，HTTP 异常和系统异常走统一兜底。
-3. **可扩展**：新增业务异常只需继承 `AppException` 并分配新的错误码，无需改动 handler。
-4. **安全输出**：未捕获异常只向客户端返回通用错误信息，详细 traceback 仅写入日志。
-
 ---
 
 ### 2. 结构化日志系统
@@ -353,17 +419,11 @@ global_exception_handler(Exception) 捕获
 | 操作 | 记录点 |
 |---|---|
 | 文档上传 | 开始 / 完成 / 失败 |
-| PDF 解析 | 解析方式选择（text 或 OCR）、起止、耗时 |
+| PDF 解析 | 解析方式选择、起止、耗时 |
 | OCR 识别 | 触发原因、页数、DPI、语言、耗时 |
 | LLM 调用 | 请求开始 / 响应完成 / 失败，prompt 预览长度，耗时 |
 | 文档问答 | 请求 doc_id、问题长度、检索片段数、回答耗时 |
-
-#### 实现方式
-
-1. 使用 Python 标准库 `logging` 的 `extra` 参数传递结构化字段。
-2. 封装 `log_event()` 工具函数，统一字段填充逻辑。
-3. 日志同时写入 `logs/app.log` 和控制台。
-4. 使用 JSON Lines 格式，一行对应一次事件，便于检索和分析。
+| 数据库写入 | 文档记录创建、状态更新、问答记录保存 |
 
 ---
 
@@ -394,23 +454,116 @@ global_exception_handler(Exception) 捕获
 
 ---
 
-### 4. 后续工程化计划
+### 4. 数据库持久化与文档状态管理
 
-当前 v0.3.2 主要完成异常处理、结构化日志和 request_id 追踪。后续工程化方向包括：
+项目引入 SQLAlchemy 管理文档元数据、处理状态和问答记录，默认使用 SQLite，可通过 `DATABASE_URL` 或 `DOCFLOW_DATABASE_URL` 配置数据库连接。
 
-1. 补充 pytest 核心流程测试，覆盖异常分支。
-2. 增加文档状态管理，记录 uploaded、parsing、summarizing、ready、failed 等状态。
-3. 引入数据库持久化，设计文档表、问答记录表和处理日志表，替代当前文件索引方案。
-4. 接入 Embedding 模型与向量存储，将关键词检索升级为语义检索。
-5. 根据项目规模决定是否引入 Celery / Redis 处理长耗时异步任务。
-6. 增加 Docker / docker-compose，简化本地部署与演示流程。
+#### 数据库表结构
+
+| 表名 | 说明 |
+|---|---|
+| `documents` | 文档元数据、状态、解析方式、字符数和错误信息 |
+| `qa_records` | 文档问答记录 |
+
+#### documents 表核心字段
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 文档 ID，对应 doc_id |
+| `filename` | 原始文件名 |
+| `file_type` | 文件类型 |
+| `storage_path` | 本地存储路径 |
+| `parse_method` | 解析方式，如 text、ocr、excel |
+| `char_count` | 解析出的字符数 |
+| `status` | 文档处理状态 |
+| `error_message` | 失败原因 |
+| `created_at` | 创建时间 |
+| `updated_at` | 更新时间 |
+
+#### qa_records 表核心字段
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 自增主键 |
+| `document_id` | 关联文档 ID |
+| `question` | 用户问题 |
+| `answer` | 模型回答 |
+| `created_at` | 创建时间 |
+
+#### 文档状态流转
+
+```text
+uploaded → parsing → parsed → summarizing → ready
+              │                    │
+              └──────→ failed      └──────→ failed
+```
+
+#### 兼容策略
+
+1. 旧有 JSON 文件索引保留可读。
+2. `GET /documents` 同时兼容数据库记录和旧 JSON 文件。
+3. 当前阶段仅将文档元数据、处理状态和问答记录迁入数据库。
+4. 文档 chunk、索引和上传文件仍保留在本地文件系统。
+5. 后续可继续升级为数据库索引或向量检索存储。
+
+#### 为什么默认使用 SQLite
+
+当前项目面向本地开发、学习和作品集展示，SQLite 无需额外安装服务，适合保持“一键启动”的体验。若后续需要多用户和并发部署，可通过修改数据库连接配置迁移到 PostgreSQL 或 MySQL。
+
+---
+
+### 5. pytest Smoke Tests
+
+项目新增后端 smoke tests，用于验证核心 API 和数据库写入流程，避免后续数据库、RAG、状态管理等改造时破坏主链路。
+
+当前测试覆盖：
+
+| 测试用例 | 覆盖内容 |
+|---|---|
+| `test_health_check` | 健康检查接口 |
+| `test_upload_txt_creates_document_record` | TXT 上传、`documents` 表写入、文档列表返回 |
+| `test_document_status_after_upload` | 文档状态查询，验证 `status=parsed`、`parse_method=text` |
+| `test_ask_writes_qa_record` | 文档问答、`question/answer` 返回结构、`qa_records` 写入 |
+| `test_invalid_file_type_returns_error` | 非法文件类型错误响应，避免未捕获 traceback |
+
+测试设计：
+
+1. 使用 `DOCFLOW_DATABASE_URL` 指向临时 SQLite 数据库，避免污染真实 `storage/docflow.db`。
+2. 使用 `tmp_path` 和 monkeypatch 隔离上传目录、索引目录和输出目录。
+3. 使用 monkeypatch mock `backend.main.ask_llm`、`summarize_text`、`summarize_text_stream`，避免测试依赖真实 LLM API。
+4. 每个测试前后重建数据库表，保证测试之间相互独立。
+
+运行方式：
+
+```powershell
+python -m pytest -q tests/
+```
+
+当前边界：
+
+1. 暂未覆盖 PDF、DOCX、Excel 等文件解析。
+2. 暂未覆盖流式摘要接口。
+3. 暂未覆盖多文档对比和 Excel 分析接口。
+4. 当前测试重点是后端主链路 smoke test，不追求完整单元测试覆盖率。
+
+---
+
+### 6. 后续工程化计划
+
+后续工程化方向包括：
+
+1. 接入 Embedding 模型与向量存储，将关键词检索升级为语义检索。
+2. 增加摘要接口和流式摘要接口的测试。
+3. 根据项目规模决定是否引入 Celery / Redis 处理长耗时异步任务。
+4. 增加 Docker / docker-compose，简化本地部署与演示流程。
+5. 后续如有多用户需求，再引入用户系统和 JWT 鉴权。
 
 ---
 
 ## 五、项目结构
 
 ```text
-docflow_agent/
+docflow-agent/
 ├── backend/
 │   ├── main.py                  # FastAPI 主应用，当前后端主入口
 │   ├── document_parser.py       # 文档解析，支持 TXT/PDF/DOCX/MD/Excel
@@ -423,44 +576,57 @@ docflow_agent/
 │   ├── table_analyzer.py        # Excel 表格分析
 │   ├── chart_generator.py       # Excel 图表生成
 │   ├── multi_doc.py             # 多文档上下文构建
+│   ├── database.py              # SQLAlchemy 数据库连接、Session、Base、get_db
+│   ├── models.py                # DocumentStatus、Document、QARecord ORM 模型
+│   ├── schemas.py               # 文档与问答相关 Pydantic Schema
 │   ├── requirements.txt         # 后端依赖
 │   │
 │   ├── core/                    # 工程化基础模块
-│   │   ├── __init__.py          # core 包初始化
+│   │   ├── __init__.py
 │   │   ├── response.py          # ApiResponse 统一响应模型
 │   │   ├── exceptions.py        # AppException 异常体系与错误码
 │   │   └── logging.py           # 结构化日志、request_id 透传与 log_event
 │   │
 │   ├── routers/                 # 历史遗留 / 实验性目录，当前未注册到 main.py
-│   │   ├── chat.py              # /api/chat，当前未启用
-│   │   └── document.py          # 旧版文档摘要路由，当前未启用
+│   │   ├── chat.py
+│   │   └── document.py
 │   │
-│   └── services/                # 历史遗留 / 实验性目录，当前主链路未使用
+│   └── services/                # 历史遗留 / 实验性目录
 │       ├── llm_service.py
 │       └── document_service.py
+│
+├── alembic/
+│   ├── env.py                   # Alembic 环境配置
+│   └── versions/                # 数据库迁移脚本
+│
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py              # pytest fixture、临时数据库、mock LLM
+│   └── test_smoke.py            # 后端 smoke tests
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── api/
-│   │   │   ├── document.js      # 文档摘要、流式摘要、问答等 API 封装
-│   │   │   └── chat.js          # 历史遗留聊天 API 封装
+│   │   │   ├── document.js
+│   │   │   └── chat.js
 │   │   ├── components/
-│   │   │   ├── DocumentPanel.vue # 当前主页面组件
-│   │   │   └── ChatPanel.vue     # 历史遗留 / 后续扩展组件
+│   │   │   ├── DocumentPanel.vue
+│   │   │   └── ChatPanel.vue
 │   │   └── App.vue
 │   ├── package.json
 │   └── vite.config.js
 │
 ├── scripts/
-│   ├── start_agent.ps1          # Windows 一键启动脚本
-│   ├── stop_agent.ps1           # Windows 停止脚本
-│   └── status_agent.ps1         # Windows 状态检查脚本
+│   ├── start_agent.ps1
+│   ├── stop_agent.ps1
+│   └── status_agent.ps1
 │
 ├── docs/
-│   └── images/                  # README 效果截图
+│   └── images/
 │
 ├── storage/                     # 本地运行数据，已加入 .gitignore
 ├── logs/                        # 本地日志目录，建议加入 .gitignore
+├── alembic.ini                  # Alembic 配置文件
 ├── .env.example                 # 环境变量示例
 ├── .gitignore
 └── README.md
@@ -529,6 +695,10 @@ DASHSCOPE_API_KEY=your_dashscope_api_key_here
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL=qwen3.6-flash
 
+# Database Configuration
+DATABASE_URL=sqlite:///./storage/docflow.db
+# DOCFLOW_DATABASE_URL=sqlite:///./storage/docflow.db
+
 # OCR Configuration
 OCR_ENABLED=true
 TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
@@ -546,7 +716,9 @@ OCR_MIN_TEXT_LENGTH=80
 | `DASHSCOPE_API_KEY` | 阿里云百炼 API Key |
 | `LLM_BASE_URL` | OpenAI-compatible API 地址 |
 | `LLM_MODEL` | 使用的模型名称 |
-| `OCR_ENABLED` | 是否启用 OCR fallback |
+| `DATABASE_URL` | 默认数据库连接地址 |
+| `DOCFLOW_DATABASE_URL` | 测试或临时环境可使用的数据库连接地址，优先级高于 `DATABASE_URL` |
+| `OCR_ENABLED` | 是否启用 OCR 回退识别 |
 | `TESSERACT_CMD` | Tesseract 可执行文件路径 |
 | `OCR_LANG` | OCR 语言包，例如 `chi_sim+eng` |
 | `OCR_DPI` | PDF 转图片时的分辨率 |
@@ -555,7 +727,51 @@ OCR_MIN_TEXT_LENGTH=80
 
 ---
 
-## 八、安装 Tesseract-OCR
+## 八、数据库初始化
+
+项目使用 Alembic 管理数据库迁移。
+
+首次运行前执行：
+
+```powershell
+alembic upgrade head
+```
+
+常用命令：
+
+```powershell
+# 生成新迁移
+alembic revision --autogenerate -m "description"
+
+# 应用迁移
+alembic upgrade head
+
+# 回滚上一个迁移
+alembic downgrade -1
+
+# 查看迁移历史
+alembic history
+```
+
+当前默认数据库文件：
+
+```text
+storage/docflow.db
+```
+
+如果本地开发数据库损坏或需要重建，可以在确认无重要数据后备份并删除：
+
+```powershell
+Copy-Item .\storage\docflow.db .\storage\docflow_backup.db
+Remove-Item .\storage\docflow.db
+alembic upgrade head
+```
+
+注意：生产或重要数据环境不要直接删除数据库。
+
+---
+
+## 九、安装 Tesseract-OCR
 
 如果需要识别扫描型 PDF，需要先安装 Tesseract-OCR。
 
@@ -582,7 +798,7 @@ GET /ocr/status
 
 ---
 
-## 九、启动项目
+## 十、启动项目
 
 ### 方式一：使用脚本启动
 
@@ -637,7 +853,7 @@ http://localhost:5173
 
 ---
 
-## 十、API 接口说明
+## 十一、API 接口说明
 
 ### 1. 非流式文档摘要
 
@@ -658,13 +874,6 @@ multipart/form-data
 | `file` | File | TXT 或 PDF 文件 |
 | `summary_mode` | string | 摘要模式，可选 `fast` 或 `deep` |
 
-当前支持格式：
-
-```text
-.txt
-.pdf
-```
-
 返回示例：
 
 ```json
@@ -682,16 +891,6 @@ multipart/form-data
 }
 ```
 
-说明：
-
-- `char_count` 表示解析出的文本字符数
-- `is_truncated` 表示是否超过当前摘要模式的输入限制
-- `preview` 返回前 500 字文本预览
-- `summary` 为模型生成的结构化摘要
-- `doc_id` 可用于后续 `/ask` 文档问答
-- `usage` 当前为 `null`，Token 使用量统计将在后续版本补充
-- 扫描型 PDF 会在普通文本提取过少时自动尝试 OCR fallback
-
 ---
 
 ### 2. 流式文档摘要
@@ -705,13 +904,6 @@ POST /api/documents/summarize/stream
 ```text
 multipart/form-data
 ```
-
-参数：
-
-| 参数 | 类型 | 说明 |
-|---|---|---|
-| `file` | File | TXT 或 PDF 文件 |
-| `summary_mode` | string | 摘要模式，可选 `fast` 或 `deep` |
 
 返回类型：
 
@@ -729,13 +921,6 @@ application/x-ndjson
 {"type":"done"}
 ```
 
-说明：
-
-- 该接口用于前端流式展示摘要
-- `fast` 模式生成更快，适合快速预览
-- `deep` 模式输入更多文档内容，摘要更完整
-- 旧版非流式接口 `POST /api/documents/summarize` 仍然保留
-
 ---
 
 ### 3. 通用文档上传
@@ -749,12 +934,6 @@ POST /upload
 ```text
 multipart/form-data
 ```
-
-参数：
-
-| 参数 | 类型 | 说明 |
-|---|---|---|
-| `file` | File | 上传文档 |
 
 支持格式：
 
@@ -771,6 +950,7 @@ multipart/form-data
 
 - 上传后会自动解析文档文本
 - 文本会被切分为片段并建立本地索引
+- 文档元数据会写入 `documents` 表
 - Excel 文件会额外进行表格分析和图表生成
 - 返回结果中包含 `doc_id`，可用于后续文档问答
 
@@ -791,16 +971,87 @@ POST /ask
 }
 ```
 
+返回示例：
+
+```json
+{
+  "doc_id": "文档ID",
+  "filename": "example.txt",
+  "question": "这份文档的主要内容是什么？",
+  "answer": "模型基于文档内容生成的回答",
+  "related_chunks": [
+    {
+      "chunk_id": 0,
+      "text": "相关原文片段",
+      "score": 2
+    }
+  ],
+  "report_path": "storage/outputs/example_report.md"
+}
+```
+
 说明：
 
 - 需要先上传文档并获取 `doc_id`
 - 系统会检索相关文档片段
 - 然后调用大模型生成基于文档内容的回答
+- 问答记录会写入 `qa_records` 表
 - 前端会展示回答和相关原文片段
 
 ---
 
-### 5. 多文档对比
+### 5. 文档状态查询
+
+```text
+GET /documents/{doc_id}/status
+```
+
+返回示例：
+
+```json
+{
+  "doc_id": "example-doc-id",
+  "filename": "example.pdf",
+  "status": "parsed",
+  "parse_method": "text",
+  "char_count": 1234,
+  "error_message": null,
+  "created_at": "2026-05-07T08:44:17.929900",
+  "updated_at": "2026-05-07T08:44:17.944175"
+}
+```
+
+---
+
+### 6. 文档列表
+
+```text
+GET /documents
+```
+
+说明：
+
+- 返回已上传文档列表
+- 当前同时兼容数据库记录和旧 JSON 文件索引
+- 返回字段包含 `status`、`parse_method`、`char_count`、`total_chunks` 等信息
+
+---
+
+### 7. 单个文档信息
+
+```text
+GET /documents/{doc_id}
+```
+
+说明：
+
+- 查询单个文档信息
+- 优先读取数据库记录
+- 保留旧 JSON 文件回退逻辑
+
+---
+
+### 8. 多文档对比
 
 ```text
 POST /compare
@@ -821,7 +1072,7 @@ POST /compare
 
 ---
 
-### 6. OCR 状态检查
+### 9. OCR 状态检查
 
 ```text
 GET /ocr/status
@@ -838,30 +1089,22 @@ GET /ocr/status
 }
 ```
 
-说明：
-
-- `available=true` 表示 OCR 环境可用
-- `languages` 中应包含 `chi_sim` 和 `eng`
-- 如果不可用，请检查 Tesseract 是否安装，以及 `.env` 中的 `TESSERACT_CMD` 是否正确
-
 ---
 
-### 7. 其他接口
+### 10. 其他接口
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/` | 根路径 |
 | GET | `/health` | 健康检查 |
 | GET | `/api/health` | 健康检查 |
-| GET | `/documents` | 已上传文档列表 |
-| GET | `/documents/{doc_id}` | 单个文档信息 |
 | POST | `/excel/analyze` | Excel 单独分析 |
 | GET | `/memory` | 查看用户记忆 |
 | POST | `/memory` | 更新用户记忆 |
 
 ---
 
-### 8. 历史遗留接口说明
+### 11. 历史遗留接口说明
 
 ```text
 POST /api/chat
@@ -879,7 +1122,52 @@ POST /ask
 
 ---
 
-## 十一、效果展示
+## 十二、测试说明
+
+### 1. 运行后端 smoke tests
+
+```powershell
+python -m pytest -q tests/
+```
+
+当前通过结果示例：
+
+```text
+5 passed
+```
+
+### 2. 编译检查
+
+```powershell
+python -m compileall backend tests
+```
+
+### 3. PowerShell 中文请求注意事项
+
+PowerShell 中直接手写中文 JSON 时，可能出现请求体编码问题。推荐使用 UTF-8 byte array 或 JSON 文件方式发送请求。
+
+推荐方式：
+
+```powershell
+$payload = @{
+    doc_id = "your-doc-id"
+    question = "这份文档主要讲了什么？"
+} | ConvertTo-Json -Compress
+
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/ask" `
+  -Method Post `
+  -ContentType "application/json; charset=utf-8" `
+  -Body $bytes
+```
+
+不要在 PowerShell 中使用 CMD 风格的 `^` 换行符。需要使用真正的 curl 时，请使用 `curl.exe` 而不是 `curl` 别名。
+
+---
+
+## 十三、效果展示
 
 ### 文档上传与结构化摘要
 
@@ -899,7 +1187,7 @@ POST /ask
 
 ---
 
-## 十二、当前项目亮点
+## 十四、当前项目亮点
 
 1. 实现文档上传、解析、摘要、问答的完整主链路
 2. 支持普通 PDF 与扫描型 PDF 自动解析
@@ -913,13 +1201,16 @@ POST /ask
 10. 支持一键生成学习笔记和行动项
 11. 引入统一异常处理体系，按文件处理、OCR、LLM 调用等模块划分业务错误码
 12. 引入 request_id 全链路追踪和 JSON 结构化日志，便于定位文档上传、解析、OCR、LLM 调用等关键流程
-13. LLM 调用统一读取根目录 `.env` 配置，便于切换 OpenAI-compatible 服务商
-14. 支持 Excel 表格分析和图表生成
-15. 提供 PowerShell 脚本简化 Windows 本地启动与停止
+13. 引入 SQLAlchemy + Alembic，管理文档元数据、处理状态和问答记录
+14. 设计 `uploaded / parsing / parsed / summarizing / ready / failed` 文档状态流转，并提供状态查询接口
+15. 新增 pytest smoke tests，覆盖健康检查、TXT 上传、状态查询、文档问答和问答记录写入等核心链路
+16. LLM 调用统一读取根目录 `.env` 配置，便于切换 OpenAI-compatible 服务商
+17. 支持 Excel 表格分析和图表生成
+18. 提供 PowerShell 脚本简化 Windows 本地启动与停止
 
 ---
 
-## 十三、当前限制
+## 十五、当前限制
 
 1. 前端当前主要围绕单文档摘要与问答流程，暂未提供完整多文档管理页面
 2. `/api/documents/summarize` 和 `/api/documents/summarize/stream` 当前主要支持 TXT / PDF
@@ -928,18 +1219,17 @@ POST /ask
 5. Token 使用量统计尚未完整展示到前端
 6. Excel 分析与图表生成能力主要在后端，前端展示还可以继续完善
 7. `routers/` 和 `services/` 目录属于历史遗留 / 实验性结构，当前主运行链路仍是 `backend/main.py + 扁平模块`
-8. 当前暂未引入数据库，文档索引、chunk 和问答上下文仍主要依赖本地文件存储
+8. 当前数据库主要保存文档元数据、处理状态和问答记录，chunk、索引和上传文件仍依赖本地文件存储
 9. 当前暂未实现用户系统、JWT 鉴权和多用户隔离
 10. 当前日志主要用于本地调试，尚未接入远程日志平台
+11. 当前 pytest 主要覆盖后端主链路 smoke tests，尚未覆盖 OCR、PDF、Excel、流式摘要和多文档对比等复杂场景
 
 ---
 
-## 十四、后续计划
+## 十六、后续计划
 
-- 增加文档状态管理，记录 uploaded、parsing、summarizing、ready、failed 等处理状态
-- 引入 SQLAlchemy，持久化文档元数据、处理状态和问答记录
 - 接入 Embedding 模型与向量检索，增强 RAG 问答能力
-- 增加基础 pytest 测试，覆盖文档上传、解析、摘要、问答等核心流程
+- 增加摘要接口和流式摘要接口测试
 - 增加 Token 使用量统计与前端展示
 - 完善前端文档问答交互体验
 - 增加多文档管理与多文档对比前端界面
@@ -947,10 +1237,35 @@ POST /ask
 - 增强 Markdown 报告导出能力
 - 支持 Docker / docker-compose 本地部署
 - 支持局域网或云服务器部署
+- 如后续需要多用户场景，再引入用户系统、JWT 鉴权和权限隔离
 
 ---
 
-## 十五、版本记录
+## 十七、版本记录
+
+### v0.3.4
+
+- 新增 pytest smoke tests，覆盖健康检查、TXT 上传、文档状态查询、文档问答和非法文件类型处理
+- 使用 monkeypatch mock LLM 调用，避免测试依赖真实阿里云百炼 API
+- 支持通过 `DOCFLOW_DATABASE_URL` 指定测试数据库，避免污染真实 `storage/docflow.db`
+- 使用临时上传目录、索引目录和输出目录隔离测试文件
+- 补充 `pytest>=8.0` 依赖
+
+---
+
+### v0.3.3
+
+- 引入 SQLAlchemy 管理文档元数据、处理状态和问答记录
+- 引入 Alembic 管理数据库迁移
+- 新增 `documents` 表，保存文档 ID、文件名、文件类型、解析方式、字符数、状态和错误信息
+- 新增 `qa_records` 表，保存文档问答记录
+- 新增 `DocumentStatus` 状态枚举，支持 `uploaded / parsing / parsed / summarizing / ready / failed`
+- 新增 `GET /documents/{doc_id}/status` 文档状态查询接口
+- `/upload`、`/api/documents/summarize`、`/api/documents/summarize/stream`、`/ask` 接入文档状态更新
+- `/ask` 成功后写入 `qa_records` 表
+- 保留旧 JSON 文件索引回退逻辑，避免破坏已有本地数据
+
+---
 
 ### v0.3.2
 
@@ -985,13 +1300,13 @@ POST /ask
 - 新增 `summarize_text()` 专用摘要 prompt
 - 统一 LLM 配置读取逻辑
 - 支持阿里云百炼 OpenAI-compatible API
-- 支持扫描型 PDF OCR fallback
+- 支持扫描型 PDF OCR 回退识别
 - 修复从项目根目录启动 `backend.main:app` 的导入问题
 - 保留 `/upload`、`/ask`、`/compare` 等已有接口
 
 ---
 
-## 十六、安全说明
+## 十八、安全说明
 
 项目中的 `.env` 文件包含 API Key 等敏感信息，已加入 `.gitignore`。
 
@@ -1004,6 +1319,9 @@ backend/.env
 storage/
 .runtime/
 logs/
+__pycache__/
+.pytest_cache/
+*.pyc
 ```
 
 如果 API Key 曾经被公开展示，建议立即在服务商控制台删除或轮换该 Key。
